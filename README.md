@@ -33,7 +33,7 @@
   - [Option 2: Build from source](#option-2-build-from-source)
   - [Uninstalling](#uninstalling)
 - [How to run a game](#how-to-run-a-game)
-  - [One-click install: Steam, Epic Games, Rockstar Games](#one-click-install-steam-epic-games-rockstar-games)
+  - [One-click install: Steam (Epic/Rockstar currently blocked upstream)](#one-click-install-steam-epic-games-and-rockstar-games-currently-blocked-upstream)
   - [Create a profile for a game you already own](#create-a-profile-for-a-game-you-already-own)
   - [Launching and quitting](#launching-and-quitting)
 - [CLI reference](#cli-reference)
@@ -69,7 +69,7 @@ What ResPilot **also** replaces is the tedious, manual part every Wine-on-Mac se
 - 🖥️ **Automatic display/HiDPI switching** — pick the exact resolution and DPI scale a game wants; ResPilot switches your Mac's display mode right before launch and restores it the instant the game quits (even if you force-quit — a background watcher and a persisted breadcrumb guarantee the restore, and a menu bar "Restore Display Now" button is always one click away).
 - 🎮 **Per-game Wine profiles** — save bottle, launch target, display mode, RetinaMode, LogPixels (DPI), and Wine renderer/ESync/MSync settings once per game; launch with one click or `respilot launch` forever after.
 - 📦 **Bottle discovery across three lineages** — finds its own self-managed bottles, CrossOver bottles (`~/Library/Application Support/CrossOver/Bottles`), *and* Wineskin/Kegworks/Sikarugir-style wrapped `.app`s automatically, no manual path entry.
-- ⬇️ **Genuinely one-click installs** — for Steam, Epic Games Launcher, and Rockstar Games Launcher: ResPilot creates a fresh bottle against its own engine, downloads the vendor's *own* installer directly from the vendor's *own* domain (never a mirror, never repackaged), provisions the Winetricks dependencies each one needs, and runs it. No browser, no manual download-and-drag, no other app to install first.
+- ⬇️ **One-click bottle creation and provisioning** — for Steam, Epic Games Launcher, and Rockstar Games Launcher: ResPilot creates a fresh bottle against its own engine, downloads the vendor's *own* installer directly from the vendor's *own* domain (never a mirror, never repackaged), and provisions the Winetricks dependencies each one needs — no browser, no manual download-and-drag, no other app to install first. **Steam's installer completes end-to-end**, confirmed live; Epic Games Launcher and Rockstar Games Launcher currently hit known upstream Wine bugs partway through (see [Troubleshooting](#troubleshooting)) — that's Wine/vendor-installer compatibility, not something ResPilot's own pipeline can route around yet.
 - 🧰 **CLI + native SwiftUI GUI** — script it in CI/automation with `respilot`, or drive it from a proper macOS menu bar app and window.
 - 🔓 **No lock-in, no telemetry, MIT-licensed** — reads and writes standard Wine registry files via `wine`/`wineboot`/CrossOver's own `cxbottle` tooling; nothing proprietary, nothing phoning home, nothing tracked.
 - 💻 **Apple Silicon and Intel** — runs natively on M-series Macs (the bundled Wine engine runs under Rosetta 2, installed automatically by macOS if needed) and on Intel Macs.
@@ -82,7 +82,7 @@ What ResPilot **also** replaces is the tedious, manual part every Wine-on-Mac se
 | Price | Paid (~$74, 14-day trial) | Free | Free | **Free, MIT** |
 | Bottle creation UI | ✅ | ✅ | ✅ | ✅ — self-managed, or delegates to CrossOver's `cxbottle` if you point it there |
 | Automatic display/HiDPI switching per game | ❌ | ❌ | ❌ | ✅ |
-| One-click Steam/Epic/Rockstar install | ❌ (manual) | ❌ (manual) | ❌ (manual) | ✅ — no external app required |
+| One-click Steam install | ❌ (manual) | ❌ (manual) | ❌ (manual) | ✅ — no external app required |
 | CLI | ❌ | ❌ | ❌ | ✅ |
 | Open source | ❌ | ✅ | ✅ | ✅ |
 
@@ -152,13 +152,13 @@ The second command also removes any bottles, profiles, and the downloaded Wine e
 
 ## How to run a game
 
-### One-click install: Steam, Epic Games, Rockstar Games
+### One-click install: Steam (Epic Games and Rockstar Games currently blocked upstream)
 
 1. Open **ResPilot** → click **Install App** in the sidebar.
-2. Pick **Steam**, **Epic Games Launcher**, or **Rockstar Games Launcher**, type a bottle name (or keep the default), and click **Install**.
+2. Pick **Steam**, type a bottle name (or keep the default), and click **Install**. (Epic Games Launcher and Rockstar Games Launcher are also listed and will run the same pipeline, but currently hit known upstream Wine bugs partway through and won't finish installing — see [Troubleshooting](#troubleshooting) for exactly where and why.)
 3. **First install only:** ResPilot downloads its free Wine engine first (~190MB, one-time — you'll see "Downloading free Wine engine…" in the status line). Every install after that skips straight to the next step.
-4. ResPilot downloads the launcher's real installer directly from the vendor's own domain, creates a fresh Wine bottle, provisions the Winetricks dependencies that launcher needs (fonts, Visual C++ runtimes), and runs the installer — finish the vendor's own install wizard exactly like you would on Windows.
-5. Once Steam/Epic/Rockstar is installed inside the bottle, open **Profiles → New Profile**, pick the bottle you just created, and point **Launch target** at the launcher's `.exe` (or the `.app` if one was created) to finish setting up a one-click launch profile with display/HiDPI settings.
+4. ResPilot downloads Steam's real installer directly from Valve's own domain, creates a fresh Wine bottle, provisions the Winetricks dependencies it needs (fonts, Visual C++ runtimes), and runs the installer — finish it exactly like you would on Windows.
+5. Once Steam is installed inside the bottle, open **Profiles → New Profile**, pick the bottle you just created, and point **Launch target** at `Steam.exe` (or the `.app` if one was created) to finish setting up a one-click launch profile with display/HiDPI settings.
 
 ### Create a profile for a game you already own
 
@@ -214,11 +214,12 @@ Normal on the very first `Install App` or `respilot install-engine` run — it's
 **A game/launcher won't start, or crashes on launch**
 This is a Wine/game compatibility issue, not specific to ResPilot — the same class of problem you'd hit under vanilla Wine, Wineskin, or CrossOver. Check the app's [WineHQ AppDB](https://appdb.winehq.org/) entry for known workarounds and required Winetricks verbs first.
 
-**Epic Games Launcher install fails with "Certificate CN does not match 'Epic Games Inc.'"**
-Reproduced and confirmed: Epic's installer verifies its embedded MSI payload's Authenticode signature before running, and a fresh Wine bottle's certificate store ships with no root CAs — a long-standing upstream Wine/WinTrust limitation, not a ResPilot bug. There's currently no reliable Winetricks or registry fix; Steam and Rockstar Games Launcher don't hit this (different installer technology). Track [upstream Wine root-certificate support](https://www.winehq.org/pipermail/wine-devel/2016-October/115023.html) if you want to follow it.
+**Epic Games Launcher currently does not complete installing**
+Reproduced and confirmed against a real bottle: two independent, unrelated upstream Wine bugs block it back-to-back, and clicking past the first one just leads to the second.
+1. The installer verifies its embedded MSI payload's Authenticode signature and fails with `Certificate CN does not match 'Epic Games Inc.'`, because a fresh Wine bottle's certificate store ships with no root CAs. Long-standing Wine/WinTrust limitation, no reliable Winetricks or registry fix exists. ([wine-devel thread](https://www.winehq.org/pipermail/wine-devel/2016-October/115023.html))
+2. Past that, the installer's .NET components crash Wine's built-in Mono runtime (`wine-mono-11.1.0/.../gmisc-win32.c: assertion 'filename != NULL' failed`) — tracked upstream ([lutris/lutris#6690](https://github.com/lutris/lutris/issues/6690)); the real fix needs a standalone Mono MSI installed into the bottle, not a Winetricks verb.
 
-**Epic Games Launcher install seems to hang on a .NET/DirectX prompt**
-Known upstream issue — the Epic installer bundles its own sub-installers that fail under Wine. Cancel those prompts if they appear; Winetricks' own `dotnet`-family verbs are the more reliable path if something's still missing afterward.
+Neither is a ResPilot bug, and Steam/Rockstar Games Launcher don't hit either one (different installer technology). **Steam is confirmed working end-to-end** — use that if you want a one-click install that actually completes today.
 
 **Rockstar Games Launcher install fails with "the package is broken"**
 Winetricks' own `rockstar` verb is currently broken on macOS upstream ([Sikarugir-App/Sikarugir#227](https://github.com/Sikarugir-App/Sikarugir/issues/227)) — not something ResPilot can route around until upstream fixes it.
