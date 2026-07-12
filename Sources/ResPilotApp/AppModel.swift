@@ -19,6 +19,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var isInstallingApp = false
     @Published private(set) var installStatusText: String = ""
     @Published private(set) var lastInstalledBottle: WineBottleTarget?
+    @Published private(set) var epicAccount: String?
+    @Published private(set) var epicGames: [EpicGame] = []
+    @Published private(set) var epicBusy = false
+    @Published private(set) var epicStatusText = ""
+    @Published private(set) var epicPlayingAppName: String?
 
     private let store: ProfileStore
     private let locator: BottleLocator
@@ -29,6 +34,7 @@ final class AppModel: ObservableObject {
     private let installerDownloader: InstallerDownloader
     private let wineEngineManager: WineEngineManager
     private let nativeAppInstaller: NativeAppInstaller
+    private let legendary: LegendaryClient
 
     init(
         store: ProfileStore = ProfileStore(),
@@ -39,7 +45,8 @@ final class AppModel: ObservableObject {
         winetricks: Winetricks = Winetricks(),
         installerDownloader: InstallerDownloader = InstallerDownloader(),
         wineEngineManager: WineEngineManager = WineEngineManager(),
-        nativeAppInstaller: NativeAppInstaller = NativeAppInstaller()
+        nativeAppInstaller: NativeAppInstaller = NativeAppInstaller(),
+        legendary: LegendaryClient = LegendaryClient()
     ) {
         self.store = store
         self.locator = locator
@@ -50,6 +57,7 @@ final class AppModel: ObservableObject {
         self.installerDownloader = installerDownloader
         self.wineEngineManager = wineEngineManager
         self.nativeAppInstaller = nativeAppInstaller
+        self.legendary = legendary
         refreshAll()
     }
 
@@ -245,6 +253,200 @@ final class AppModel: ObservableObject {
         case .installingDependencies(let verb): installStatusText = "Installing \(verb)…"
         case .runningInstaller: installStatusText = "Running the \(appName) installer…"
         case .done: installStatusText = "Done"
+        }
+    }
+
+    // MARK: - Epic Games (via Legendary)
+
+    /// Ensures Legendary is installed, then refreshes `epicAccount` and
+    /// (if logged in) `epicGames`. Runs off the main actor (`Task.detached`)
+    /// since this can block on real process calls with multi-second-to-
+    /// minute timeouts (`accountName`/`listGames`) — same reasoning
+    /// `epicInstall`/`epicPlay` detach for their own, much longer blocking
+    /// calls. The only Epic method not gated by `guard !epicBusy`: every
+    /// other method below calls this once its own operation finishes, and
+    /// it must be able to run regardless of the busy state that caller
+    /// hasn't cleared yet.
+    ///
+    /// `self` is captured strongly (not `[weak self]`) into each
+    /// `Task.detached` below: `AppModel` is the app's root, app-lifetime
+    /// state object, so there's no meaningful early-deallocation case to
+    /// guard against here, and a weak capture re-read from a
+    /// concurrently-executing (non-actor-isolated) closure is exactly
+    /// what the Swift 6 "reference to captured var … in concurrently-
+    /// executing code" diagnostic flags as unsafe.
+    func refreshEpic() {
+        epicBusy = true
+        lastError = nil
+        let legendary = self.legendary
+        Task.detached {
+            do {
+                if !legendary.isInstalled {
+                    try await legendary.install(onProgress: { status in
+                        Task { @MainActor in self.epicStatusText = status }
+                    })
+                }
+                let account = try legendary.accountName()
+                let games = account != nil ? try legendary.listGames() : []
+                await MainActor.run {
+                    self.epicAccount = account
+                    self.epicGames = games
+                    self.epicBusy = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.lastError = error.localizedDescription
+                    self.epicBusy = false
+                }
+            }
+        }
+    }
+
+    func epicLogin(code: String) {
+        guard !epicBusy else { return }
+        epicBusy = true
+        epicStatusText = "Logging in…"
+        lastError = nil
+        let legendary = self.legendary
+        let trimmed = code
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        Task.detached {
+            do {
+                try legendary.login(code: trimmed)
+                await self.refreshEpic()
+            } catch {
+                await MainActor.run {
+                    self.lastError = error.localizedDescription
+                    self.epicBusy = false
+                }
+            }
+        }
+    }
+
+    func epicLogout() {
+        guard !epicBusy else { return }
+        epicBusy = true
+        lastError = nil
+        let legendary = self.legendary
+        Task.detached {
+            do {
+                try legendary.logout()
+                await MainActor.run {
+                    self.epicAccount = nil
+                    self.epicGames = []
+                    self.epicBusy = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.lastError = error.localizedDescription
+                    self.epicBusy = false
+                }
+            }
+        }
+    }
+
+    func epicInstall(_ game: EpicGame) {
+        guard !epicBusy else { return }
+        epicBusy = true
+        epicStatusText = "Installing \(game.title)…"
+        lastError = nil
+        let legendary = self.legendary
+        Task.detached {
+            do {
+                try legendary.installGame(appName: game.appName, onProgress: { status in
+                    Task { @MainActor in self.epicStatusText = status }
+                })
+                await self.refreshEpic()
+            } catch {
+                await MainActor.run {
+                    self.lastError = error.localizedDescription
+                    self.epicStatusText = "Failed"
+                    self.epicBusy = false
+                }
+            }
+        }
+    }
+
+    /// Orchestration order: ensure ResPilot's Wine engine is installed,
+    /// ensure the shared `EpicGames` bottle exists, provision it with
+    /// core fonts/VC++ runtime the first time only, then launch the game
+    /// through Legendary — which blocks until the player quits. Runs
+    /// entirely off the main actor (`Task.detached`): `legendary.launch`
+    /// alone can block for an entire game session.
+    func epicPlay(_ game: EpicGame) {
+        guard !epicBusy else { return }
+        epicBusy = true
+        epicStatusText = "Preparing \(game.title)…"
+        lastError = nil
+        let legendary = self.legendary
+        let wineEngineManager = self.wineEngineManager
+        let winetricks = self.winetricks
+        Task.detached {
+            do {
+                if !wineEngineManager.isInstalled {
+                    try await wineEngineManager.install(onProgress: { status in
+                        Task { @MainActor in self.epicStatusText = status }
+                    })
+                }
+
+                let bottle = WineBottleTarget(
+                    kind: .respilotManaged,
+                    prefixPath: BottleLocator.defaultRespilotBottleDirectory()
+                        .appendingPathComponent(LegendaryClient.epicBottleName).path,
+                    wineBinaryPath: wineEngineManager.wineBinaryPath
+                )
+                let isNewBottle = !FileManager.default.fileExists(atPath: bottle.prefixPath)
+                try BottleProvisioner().createPrefix(bottle)
+
+                if isNewBottle {
+                    if !winetricks.isInstalled {
+                        await MainActor.run { self.epicStatusText = "Setting up Winetricks…" }
+                        try await winetricks.install()
+                    }
+                    await MainActor.run { self.epicStatusText = "Installing fonts and runtime dependencies…" }
+                    try winetricks.run(verbs: ["corefonts", "vcrun2019"], in: bottle)
+                    await MainActor.run { self.rediscoverBottles() }
+                }
+
+                await MainActor.run {
+                    self.epicPlayingAppName = game.appName
+                    self.epicStatusText = "Launching \(game.title)…"
+                }
+                try legendary.launch(appName: game.appName, wineBinary: wineEngineManager.wineBinaryPath, winePrefix: bottle.prefixPath)
+                await MainActor.run {
+                    self.epicPlayingAppName = nil
+                    self.epicStatusText = ""
+                    self.epicBusy = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.lastError = error.localizedDescription
+                    self.epicStatusText = "Failed"
+                    self.epicPlayingAppName = nil
+                    self.epicBusy = false
+                }
+            }
+        }
+    }
+
+    func epicUninstall(_ game: EpicGame) {
+        guard !epicBusy else { return }
+        epicBusy = true
+        epicStatusText = "Uninstalling \(game.title)…"
+        lastError = nil
+        let legendary = self.legendary
+        Task.detached {
+            do {
+                try legendary.uninstallGame(appName: game.appName)
+                await self.refreshEpic()
+            } catch {
+                await MainActor.run {
+                    self.lastError = error.localizedDescription
+                    self.epicStatusText = "Failed"
+                    self.epicBusy = false
+                }
+            }
         }
     }
 }

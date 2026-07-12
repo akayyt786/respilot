@@ -367,6 +367,123 @@ func cmdInstallEngine() async throws {
     print("Installed. wine: \(wineBinary)")
 }
 
+func cmdEpicLogin(_ args: ArgParser) async throws {
+    let legendary = LegendaryClient()
+    guard let code = args.string("code") else {
+        print("Open this URL, sign in, then copy the authorizationCode value from the JSON shown after login:")
+        print("  \(LegendaryClient.epicLoginURL.absoluteString)")
+        print("Sign in, copy the authorizationCode value, then run: respilot epic-login --code <code>")
+        return
+    }
+    if !legendary.isInstalled {
+        print("Downloading Legendary (open-source Epic Games client, one-time, ~7MB, GPLv3)...")
+        try await legendary.install(onProgress: { status in print("  \(status)") })
+    }
+    try legendary.login(code: code)
+    print("Logged in as \(try legendary.accountName() ?? "?")")
+}
+
+func cmdEpicList() async throws {
+    let legendary = try await ensureLegendaryInstalled()
+    guard try legendary.accountName() != nil else {
+        throw CLIError.invalidValue("epic", "Not logged in — run \"respilot epic-login\" first.")
+    }
+    let games = try legendary.listGames()
+    if games.isEmpty {
+        print("No games found in your Epic library.")
+        return
+    }
+    for game in games {
+        let status = game.installPath != nil ? "installed" : "available"
+        print("\(status)  \(game.title)  [\(game.appName)]")
+    }
+}
+
+func cmdEpicInstall(_ args: ArgParser) async throws {
+    let query = try args.requiredString("app")
+    let legendary = try await ensureLegendaryInstalled()
+    guard try legendary.accountName() != nil else {
+        throw CLIError.invalidValue("epic", "Not logged in — run \"respilot epic-login\" first.")
+    }
+    let games = try legendary.listGames()
+    let game = try resolveEpicGame(query: query, in: games)
+    let basePath = args.string("base-path") ?? LegendaryClient.defaultGamesBasePath
+    print("Installing \"\(game.title)\" to \(basePath)...")
+    try legendary.installGame(appName: game.appName, basePath: basePath, onProgress: { line in print("  \(line)") })
+    print("Installed \"\(game.title)\".")
+}
+
+func cmdEpicLaunch(_ args: ArgParser) async throws {
+    let query = try args.requiredString("app")
+    let legendary = try await ensureLegendaryInstalled()
+    guard try legendary.accountName() != nil else {
+        throw CLIError.invalidValue("epic", "Not logged in — run \"respilot epic-login\" first.")
+    }
+    let games = try legendary.listGames()
+    let game = try resolveEpicGame(query: query, in: games)
+    guard game.installPath != nil else {
+        throw CLIError.invalidValue("app", "\"\(game.title)\" isn't installed yet — run \"respilot epic-install --app \(game.appName)\" first.")
+    }
+
+    let engine = WineEngineManager()
+    if !engine.isInstalled {
+        print("Downloading ResPilot's free Wine engine (WineHQ, ~190MB, one-time)...")
+        try await engine.install(onProgress: { status in print("  \(status)") })
+    }
+
+    let bottle = WineBottleTarget(
+        kind: .respilotManaged,
+        prefixPath: BottleLocator.defaultRespilotBottleDirectory().appendingPathComponent(LegendaryClient.epicBottleName).path,
+        wineBinaryPath: engine.wineBinaryPath
+    )
+    let isNewBottle = !FileManager.default.fileExists(atPath: bottle.prefixPath)
+    print("Preparing the \"\(LegendaryClient.epicBottleName)\" bottle...")
+    try BottleProvisioner().createPrefix(bottle)
+
+    if isNewBottle {
+        let winetricks = Winetricks()
+        if !winetricks.isInstalled {
+            print("Setting up Winetricks...")
+            try await winetricks.install()
+        }
+        print("Installing fonts and runtime dependencies...")
+        try winetricks.run(verbs: ["corefonts", "vcrun2019"], in: bottle)
+    }
+
+    print("Launching \"\(game.title)\"...")
+    try legendary.launch(appName: game.appName, wineBinary: engine.wineBinaryPath, winePrefix: bottle.prefixPath)
+    print("Game exited.")
+}
+
+func cmdEpicLogout() throws {
+    try LegendaryClient().logout()
+    print("Logged out of Epic Games.")
+}
+
+private func ensureLegendaryInstalled() async throws -> LegendaryClient {
+    let legendary = LegendaryClient()
+    if !legendary.isInstalled {
+        print("Downloading Legendary (open-source Epic Games client, one-time, ~7MB, GPLv3)...")
+        try await legendary.install(onProgress: { status in print("  \(status)") })
+    }
+    return legendary
+}
+
+/// Resolves `--app` against the library case-insensitively on `appName`
+/// OR `title`; on no match, lists the library as a "did you mean" hint.
+private func resolveEpicGame(query: String, in games: [EpicGame]) throws -> EpicGame {
+    guard let game = games.first(where: {
+        $0.appName.localizedCaseInsensitiveContains(query) || $0.title.localizedCaseInsensitiveContains(query)
+    }) else {
+        let available = games.map(\.title).joined(separator: ", ")
+        throw CLIError.invalidValue(
+            "app",
+            "\"\(query)\" not found in your Epic library. Available: \(available.isEmpty ? "(none)" : available)"
+        )
+    }
+    return game
+}
+
 func printHelp() {
     print("""
     respilot — display-resolution / HiDPI auto-switcher for Wine gaming on macOS
@@ -389,17 +506,23 @@ func printHelp() {
       respilot apply          --name <name> [--dry-run]
       respilot restore
       respilot list-apps
-      respilot install-app    --app steam|"epic games"|"rockstar games launcher"
+      respilot install-app    --app steam|"rockstar games launcher"
                                [--installer <path to a file you already downloaded>] [--bottle-name <name>] [--dry-run]
-                               (Steam/Rockstar: creates a bottle against ResPilot's own free engine —
-                                downloading it first if needed — provisions common Wine dependencies via
-                                Winetricks, then runs the installer. Epic: installs Heroic Games Launcher
-                                directly as a native Mac app instead — Epic's own Windows installer
-                                doesn't complete under Wine; see "respilot list-apps" for why. Installer
-                                downloaded automatically from the vendor's own domain unless --installer
-                                overrides it)
+                               (creates a bottle against ResPilot's own free engine — downloading it
+                                first if needed — provisions common Wine dependencies via Winetricks,
+                                then runs the installer. Installer downloaded automatically from the
+                                vendor's own domain unless --installer overrides it. For Epic Games, use
+                                "respilot epic-*" below instead)
       respilot install-engine (downloads ResPilot's free Wine engine ahead of time; "install-app"
                                 also does this automatically on first use)
+      respilot epic-login     [--code <authorizationCode>]  (no --code: prints the login URL and instructions)
+      respilot epic-list
+      respilot epic-install   --app <name> [--base-path <dir>]   (default: ~/Games/Epic)
+      respilot epic-launch    --app <name>
+      respilot epic-logout
+                               (native Epic Games support — log in, install, and play through ResPilot's
+                                own free Wine engine, powered by the open-source Legendary client
+                                (GPLv3). No Epic Games Launcher, CrossOver, or Heroic required.)
 
     Environment:
       RESPILOT_HOME   overrides where profiles.json / pending-restore.json live

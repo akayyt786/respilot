@@ -4,6 +4,7 @@ import SwiftUI
 enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
     case profiles = "Profiles"
     case bottles = "Bottles"
+    case epicGames = "Epic Games"
     case installApp = "Install App"
 
     var id: String { rawValue }
@@ -12,6 +13,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .profiles: return "gamecontroller"
         case .bottles: return "shippingbox"
+        case .epicGames: return "gamecontroller.fill"
         case .installApp: return "arrow.down.app"
         }
     }
@@ -51,6 +53,8 @@ struct MainWindowView: View {
                 ProfilesView(model: model)
             case .bottles:
                 BottlesView(model: model)
+            case .epicGames:
+                EpicGamesView(model: model)
             case .installApp:
                 InstallAppView(model: model)
             }

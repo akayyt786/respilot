@@ -53,19 +53,8 @@ import Testing
 
     @Test func catalogIncludesTheExpectedApps() {
         let names = AppCatalog.popular.map(\.name)
-        #expect(names.contains("Steam"))
-        #expect(names.contains("Rockstar Games Launcher"))
-        #expect(names.contains { $0.localizedCaseInsensitiveContains("Epic") })
-    }
-
-    @Test func epicEntryIsANativeMacAppNotAWineBottle() throws {
-        let epic = try #require(AppCatalog.popular.first { $0.name.localizedCaseInsensitiveContains("Epic") })
-        guard case .nativeMacApp = epic.installKind else {
-            Issue.record("Expected Epic catalog entry to use .nativeMacApp, since Epic's own Windows installer doesn't complete under Wine.")
-            return
-        }
-        #expect(epic.resolvedDirectDownloadURL != nil)
-        #expect(epic.recommendedVerbs.isEmpty)
+        #expect(Set(names) == ["Steam", "Rockstar Games Launcher"])
+        #expect(AppCatalog.popular.count == 2)
     }
 
     @Test func steamAndRockstarAreStillWineBottleApps() {

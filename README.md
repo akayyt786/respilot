@@ -6,14 +6,14 @@
 
 ### Run Windows games and apps on Mac — free, no CrossOver required
 
-**ResPilot is a free, open-source Windows-app runner for macOS.** It bundles its own free Wine engine, so you can play Steam and Rockstar Games titles — or run any Windows `.exe` — on Apple Silicon or Intel Macs with one click, automatic display/HiDPI switching per game, and zero telemetry. For Epic Games Store it installs [Heroic Games Launcher](https://heroicgameslauncher.com/) instead of Epic's own broken-under-Wine installer — the same substitution CodeWeavers' own official CrossOver guidance makes. No CrossOver purchase, no Wineskin wrapper, no Homebrew required.
+**ResPilot is a free, open-source Windows-app runner for macOS.** It bundles its own free Wine engine, so you can play Steam, Epic Games, and Rockstar Games titles — or run any Windows `.exe` — on Apple Silicon or Intel Macs with one click, automatic display/HiDPI switching per game, and zero telemetry. Epic Games support is native: log into your Epic account, install, and play your library right inside ResPilot — powered by the open-source [Legendary](https://github.com/derrod/legendary) client, the same engine Heroic Games Launcher uses. No CrossOver purchase, no Wineskin wrapper, no Homebrew, no second launcher required.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform: macOS 13+](https://img.shields.io/badge/platform-macOS%2013%2B-blue)](#requirements)
 [![Apple Silicon & Intel](https://img.shields.io/badge/Apple%20Silicon%20%26%20Intel-supported-success)](#requirements)
 [![Swift 5.10](https://img.shields.io/badge/Swift-5.10-orange?logo=swift)](Package.swift)
 [![Build with Swift Package Manager](https://img.shields.io/badge/built%20with-Swift%20Package%20Manager-red)](Package.swift)
-[![Tests: 118 passing](https://img.shields.io/badge/tests-118%20passing-brightgreen)](Tests/ResPilotCoreTests)
+[![Tests: 128 passing](https://img.shields.io/badge/tests-128%20passing-brightgreen)](Tests/ResPilotCoreTests)
 
 **[⬇ Download for macOS](#installation)** · **[How to run a game](#how-to-run-a-game)** · [Features](#features) · [CLI Reference](#cli-reference) · [Troubleshooting](#troubleshooting) · [FAQ](#faq)
 
@@ -33,7 +33,8 @@
   - [Option 2: Build from source](#option-2-build-from-source)
   - [Uninstalling](#uninstalling)
 - [How to run a game](#how-to-run-a-game)
-  - [One-click install: Steam, Epic Games (via Heroic)](#one-click-install-steam-epic-games-via-heroic)
+  - [One-click install: Steam and Rockstar](#one-click-install-steam-and-rockstar)
+  - [Install and play Epic games](#install-and-play-epic-games)
   - [Create a profile for a game you already own](#create-a-profile-for-a-game-you-already-own)
   - [Launching and quitting](#launching-and-quitting)
 - [CLI reference](#cli-reference)
@@ -60,7 +61,7 @@ What ResPilot **also** replaces is the tedious, manual part every Wine-on-Mac se
 
 <p align="center">
   <img src="docs/screenshot-main.png" width="49%" alt="ResPilot Profiles view — manage per-game Wine and display settings on macOS">
-  <img src="docs/screenshot-install.png" width="49%" alt="ResPilot Install App view — one-click Steam, Epic Games, and Rockstar Games install on Mac without CrossOver">
+  <img src="docs/screenshot-install.png" width="49%" alt="ResPilot Install App view — one-click Steam and Rockstar Games install on Mac without CrossOver">
 </p>
 
 ## Features
@@ -69,7 +70,7 @@ What ResPilot **also** replaces is the tedious, manual part every Wine-on-Mac se
 - 🖥️ **Automatic display/HiDPI switching** — pick the exact resolution and DPI scale a game wants; ResPilot switches your Mac's display mode right before launch and restores it the instant the game quits (even if you force-quit — a background watcher and a persisted breadcrumb guarantee the restore, and a menu bar "Restore Display Now" button is always one click away).
 - 🎮 **Per-game Wine profiles** — save bottle, launch target, display mode, RetinaMode, LogPixels (DPI), and Wine renderer/ESync/MSync settings once per game; launch with one click or `respilot launch` forever after.
 - 📦 **Bottle discovery across three lineages** — finds its own self-managed bottles, CrossOver bottles (`~/Library/Application Support/CrossOver/Bottles`), *and* Wineskin/Kegworks/Sikarugir-style wrapped `.app`s automatically, no manual path entry.
-- ⬇️ **One-click installs, whatever it actually takes to work** — **Steam**: ResPilot creates a fresh bottle against its own engine, downloads Valve's own installer, provisions the Winetricks dependencies it needs, and runs it — confirmed working end-to-end. **Epic Games**: Epic's own Windows installer doesn't complete under Wine (two independent upstream bugs — see [Troubleshooting](#troubleshooting)), so instead ResPilot installs [Heroic Games Launcher](https://heroicgameslauncher.com/) — a free, open-source, natively-signed Mac app — straight to `/Applications`, no Wine bottle at all; log into your real Epic account inside it. **Rockstar Games Launcher**: hits a separate, currently-broken upstream Winetricks verb.
+- ⬇️ **One-click installs, whatever it actually takes to work** — **Steam**: ResPilot creates a fresh bottle against its own engine, downloads Valve's own installer, provisions the Winetricks dependencies it needs, and runs it — confirmed working end-to-end. **Epic Games**: log into your Epic account, install and play your Epic games right inside ResPilot — powered by the open-source Legendary client, the same engine Heroic uses. **Rockstar Games Launcher**: hits a separate, currently-broken upstream Winetricks verb.
 - 🧰 **CLI + native SwiftUI GUI** — script it in CI/automation with `respilot`, or drive it from a proper macOS menu bar app and window.
 - 🔓 **No lock-in, no telemetry, MIT-licensed** — reads and writes standard Wine registry files via `wine`/`wineboot`/CrossOver's own `cxbottle` tooling; nothing proprietary, nothing phoning home, nothing tracked.
 - 💻 **Apple Silicon and Intel** — runs natively on M-series Macs (the bundled Wine engine runs under Rosetta 2, installed automatically by macOS if needed) and on Intel Macs.
@@ -82,7 +83,7 @@ What ResPilot **also** replaces is the tedious, manual part every Wine-on-Mac se
 | Price | Paid (~$74, 14-day trial) | Free | Free | **Free, MIT** |
 | Bottle creation UI | ✅ | ✅ | ✅ | ✅ — self-managed, or delegates to CrossOver's `cxbottle` if you point it there |
 | Automatic display/HiDPI switching per game | ❌ | ❌ | ❌ | ✅ |
-| One-click Steam + Epic (via Heroic) install | ❌ (manual) | ❌ (manual) | ❌ (manual) | ✅ — no external app required |
+| One-click Steam + Epic install & play | ❌ (manual) | ❌ (manual) | ❌ (manual) | ✅ — built in, no external app |
 | CLI | ❌ | ❌ | ❌ | ✅ |
 | Open source | ❌ | ✅ | ✅ | ✅ |
 
@@ -152,7 +153,7 @@ The second command also removes any bottles, profiles, and the downloaded Wine e
 
 ## How to run a game
 
-### One-click install: Steam, Epic Games (via Heroic)
+### One-click install: Steam and Rockstar
 
 **Steam:**
 1. Open **ResPilot** → click **Install App** in the sidebar.
@@ -161,9 +162,29 @@ The second command also removes any bottles, profiles, and the downloaded Wine e
 4. ResPilot downloads Steam's real installer directly from Valve's own domain, creates a fresh Wine bottle, provisions the Winetricks dependencies it needs (fonts, Visual C++ runtimes), and runs the installer — finish it exactly like you would on Windows.
 5. Once Steam is installed inside the bottle, open **Profiles → New Profile**, pick the bottle you just created, and point **Launch target** at `Steam.exe` (or the `.app` if one was created) to finish setting up a one-click launch profile with display/HiDPI settings.
 
-**Epic Games:** Epic's own Windows installer doesn't complete under Wine — two independent upstream bugs (see [Troubleshooting](#troubleshooting)) — so ResPilot doesn't try to force it. Click **Install** on the **Epic Games (via Heroic)** card instead: it downloads and installs [Heroic Games Launcher](https://heroicgameslauncher.com/) (free, open-source, natively signed) straight to `/Applications` — no Wine bottle, no engine download, no bottle name needed. Open Heroic, click **Log in**, sign into your real Epic account, and your library shows up there — this is the same approach CodeWeavers' own official CrossOver guidance uses for Epic Games Store.
+**Rockstar Games Launcher** is also listed and runs the same Steam-style Wine bottle pipeline, but currently hits a separate, broken-upstream Winetricks verb — see [Troubleshooting](#troubleshooting).
 
-**Rockstar Games Launcher** is also listed and runs the Steam-style Wine bottle pipeline, but currently hits a separate, broken-upstream Winetricks verb — see [Troubleshooting](#troubleshooting).
+### Install and play Epic games
+
+Epic Games support is native — no Epic Games Launcher, no CrossOver, no Heroic:
+
+1. Open **ResPilot** → click **Epic Games** in the sidebar.
+2. Click **Open Epic Login Page** and sign in with your real Epic account.
+3. After signing in, the page shows JSON containing an `authorizationCode` field — copy its value.
+4. Paste it into ResPilot and click **Log In**. Your Epic library shows up right there.
+5. Click **Install** on any game — ResPilot downloads it straight from Epic's own servers via [Legendary](https://github.com/derrod/legendary), the same open-source client Heroic Games Launcher uses, to `~/Games/Epic`.
+6. Click **Play**. The first time, ResPilot downloads its free Wine engine (~190MB, one-time, same as Steam) and provisions a shared `EpicGames` bottle with core fonts and the VC++ runtime — every launch after that skips straight to the game.
+
+CLI equivalents:
+
+```bash
+respilot epic-login                          # prints the login URL + instructions
+respilot epic-login --code <authorizationCode>
+respilot epic-list                           # your library — installed + available
+respilot epic-install --app "<name>"         # downloads to ~/Games/Epic (or --base-path <dir>)
+respilot epic-launch --app "<name>"          # engine + bottle setup on first run, then launches
+respilot epic-logout
+```
 
 ### Create a profile for a game you already own
 
@@ -190,7 +211,7 @@ Click a profile's **Launch** button (from the **Profiles** tab or the menu bar).
 ```
 respilot list-displays                                  Show current + available display modes
 respilot list-bottles                                    Discover ResPilot-managed + CrossOver + Wineskin-style bottles
-respilot list-apps                                        One-click install catalog (Steam, Epic via Heroic, Rockstar)
+respilot list-apps                                        One-click install catalog (Steam, Rockstar Games Launcher)
 respilot list-profiles                                    List saved profiles
 respilot show-profile --name <name>                       Full profile detail
 respilot add-profile --name <name> --kind respilot|crossover|wineskin --bottle-name <name> \
@@ -199,8 +220,13 @@ respilot add-profile --name <name> --kind respilot|crossover|wineskin --bottle-n
 respilot remove-profile --name <name>
 respilot apply --name <name>                              Apply a profile's display/Wine settings and launch
 respilot restore                                          Restore display now (safe to call anytime)
-respilot install-app --app steam|epic|rockstar --bottle-name <name> [--installer <path>] [--dry-run]
+respilot install-app --app steam|rockstar --bottle-name <name> [--installer <path>] [--dry-run]
 respilot install-engine                                   Downloads ResPilot's free Wine engine ahead of time
+respilot epic-login [--code <authorizationCode>]           No --code: prints the login URL + instructions
+respilot epic-list                                         Your Epic library (installed + available)
+respilot epic-install --app <name> [--base-path <dir>]     Default base path: ~/Games/Epic
+respilot epic-launch --app <name>                          Engine + bottle setup on first run, then launches
+respilot epic-logout
 ```
 
 Environment: `RESPILOT_HOME` overrides where `profiles.json` / `pending-restore.json` live (default: `~/Library/Application Support/ResPilot`).
@@ -219,15 +245,15 @@ Normal on the very first `Install App` or `respilot install-engine` run — it's
 **A game/launcher won't start, or crashes on launch**
 This is a Wine/game compatibility issue, not specific to ResPilot — the same class of problem you'd hit under vanilla Wine, Wineskin, or CrossOver. Check the app's [WineHQ AppDB](https://appdb.winehq.org/) entry for known workarounds and required Winetricks verbs first.
 
-**"Epic Games (via Heroic)" install, not "Epic Games Launcher"?**
-Correct, and intentional — Epic's own Windows installer does not complete under Wine (two independent upstream bugs, details below), so ResPilot doesn't try to force it. It installs [Heroic Games Launcher](https://heroicgameslauncher.com/) instead, a free/open-source native Mac app that talks to Epic's servers directly, no Wine involved — the same substitution CodeWeavers' own official CrossOver support guidance makes for Epic Games Store. This is solved, not a limitation: click Install, then log into your real Epic account inside Heroic.
+**Epic login asks me to paste a code — where is it?**
+After clicking **Open Epic Login Page** and signing in, Epic shows a plain JSON page — copy just the value of the `authorizationCode` field (not the whole page) and paste that into ResPilot's Epic Games tab, or run `respilot epic-login --code <code>`.
 
-**Why doesn't ResPilot just install Epic's own launcher?**
-Reproduced and confirmed against a real bottle: two independent, unrelated upstream Wine bugs block it back-to-back, and clicking past the first one just leads to the second.
+**Why doesn't ResPilot use Epic's own launcher?**
+Reproduced and confirmed against a real bottle: two independent, unrelated upstream Wine bugs block Epic's own Windows installer/launcher back-to-back, and clicking past the first one just leads to the second.
 1. The installer verifies its embedded MSI payload's Authenticode signature and fails with `Certificate CN does not match 'Epic Games Inc.'`, because a fresh Wine bottle's certificate store ships with no root CAs. Long-standing Wine/WinTrust limitation, no reliable Winetricks or registry fix exists. ([wine-devel thread](https://www.winehq.org/pipermail/wine-devel/2016-October/115023.html))
 2. Past that, the installer's .NET components crash Wine's built-in Mono runtime (`wine-mono-11.1.0/.../gmisc-win32.c: assertion 'filename != NULL' failed`) — tracked upstream ([lutris/lutris#6690](https://github.com/lutris/lutris/issues/6690)); the real fix needs a standalone Mono MSI installed into the bottle, not a Winetricks verb.
 
-Neither is a ResPilot bug, and Steam/Rockstar Games Launcher don't hit either one (different installer technology).
+Neither bug is a ResPilot bug, and Steam/Rockstar Games Launcher don't hit either one (different installer technology). ResPilot sidesteps both entirely by driving [Legendary](https://github.com/derrod/legendary) (GPLv3) instead — an open-source client that talks to Epic's servers directly for login/library/download, no Wine involved. Only the game itself runs under Wine, through ResPilot's own engine — if an *installed* game won't launch or crashes, that's Wine/game compatibility, not this issue; see the "A game/launcher won't start, or crashes on launch" entry above and check the title's WineHQ AppDB entry.
 
 **Rockstar Games Launcher install fails with "the package is broken"**
 Winetricks' own `rockstar` verb is currently broken on macOS upstream ([Sikarugir-App/Sikarugir#227](https://github.com/Sikarugir-App/Sikarugir/issues/227)) — not something ResPilot can route around until upstream fixes it.
@@ -242,11 +268,11 @@ Still stuck? [Open an issue](../../issues/new) with your macOS version, Mac chip
 
 ## Architecture
 
-- **`ResPilotCore`** — all Wine/display/process logic, zero UI dependencies. Fully unit-tested (118 tests) against protocol-based fakes for process execution, display mode, downloads, and app launching, so the actual invocation shape of every `wine`/`wineboot`/`cxbottle`/Winetricks call is asserted, not assumed.
+- **`ResPilotCore`** — all Wine/display/process logic, zero UI dependencies. Fully unit-tested (128 tests) against protocol-based fakes for process execution, display mode, downloads, and app launching, so the actual invocation shape of every `wine`/`wineboot`/`cxbottle`/Winetricks/Legendary call is asserted, not assumed.
 - **`ResPilotApp`** — the SwiftUI menu bar + window app, a thin adapter over `ResPilotCore`.
 - **`respilot-cli`** — a Swift Argument Parser-free, dependency-free CLI over the same core.
 
-Every external tool ResPilot shells out to (`wine`/`wine64`, `wineboot`, `cxbottle`, [Winetricks](https://github.com/Winetricks/winetricks)) is invoked exactly the way upstream Wine/CodeWeavers/Winetricks document, verified against a real install rather than assumed — see the doc comments in `Sources/ResPilotCore` for the specific quirks (CrossOver's shared `wine` binary needing `--bottle <name>` addressing vs. plain `WINEPREFIX` for a self-managed or Wineskin-style bottle, its Perl-wrapper `wine` needing `WINE_BIN`/`WINESERVER_BIN` pointed at the real Mach-O binaries for Winetricks' own arch auto-detection, `--template win10_64` / `WINEARCH=win64` being required for a WOW64-layout bottle either way, etc.). `WineEngineManager` downloads, sha256-verifies, and extracts ResPilot's own pinned WineHQ release (see its doc comment for the exact version/license) — never bundled in the repo or app, fetched once on demand. `NativeAppInstaller` handles the other install path (`CatalogApp.AppInstallKind.nativeMacApp`): downloads a `.zip`, extracts it, and copies the `.app` straight into `/Applications` — no engine, no bottle, no Winetricks — used for Epic Games Store, where installing Heroic Games Launcher is more reliable than Epic's own Windows installer under Wine.
+Every external tool ResPilot shells out to (`wine`/`wine64`, `wineboot`, `cxbottle`, [Winetricks](https://github.com/Winetricks/winetricks), [Legendary](https://github.com/derrod/legendary)) is invoked exactly the way upstream Wine/CodeWeavers/Winetricks/Legendary document, verified against a real install rather than assumed — see the doc comments in `Sources/ResPilotCore` for the specific quirks (CrossOver's shared `wine` binary needing `--bottle <name>` addressing vs. plain `WINEPREFIX` for a self-managed or Wineskin-style bottle, its Perl-wrapper `wine` needing `WINE_BIN`/`WINESERVER_BIN` pointed at the real Mach-O binaries for Winetricks' own arch auto-detection, `--template win10_64` / `WINEARCH=win64` being required for a WOW64-layout bottle either way, etc.). `WineEngineManager` downloads, sha256-verifies, and extracts ResPilot's own pinned WineHQ release (see its doc comment for the exact version/license) — never bundled in the repo or app, fetched once on demand. `LegendaryClient` follows the same pattern for Epic Games: downloads and sha256-verifies a pinned Legendary release to ResPilot's own support directory, then drives it for login, library listing, install, and launch — see its doc comment for the pinned version. `NativeAppInstaller` (`CatalogApp.AppInstallKind.nativeMacApp`) remains generic, unit-tested library API for downloading a `.zip` and copying a `.app` straight into `/Applications` — no built-in catalog entry currently uses it.
 
 ## FAQ
 
@@ -266,7 +292,7 @@ No. `Install App` downloads each vendor's own installer directly from that vendo
 ResPilot has zero telemetry and no network calls except: downloading its own Wine engine (from GitHub, checksum-verified), downloading Winetricks (from its own GitHub repo), and downloading a game launcher's installer directly from that vendor's domain when you click Install. Nothing is ever sent back anywhere. It's fully open source — read the code yourself.
 
 **Will this get me banned from Steam/Epic/Rockstar?**
-ResPilot doesn't modify or interact with anti-cheat or account systems; it's just a bottle/display manager, and for Epic specifically doesn't touch Epic's own client at all (see [Heroic Games Launcher](https://heroicgameslauncher.com/) above). That said, running any game under Wine carries the same anti-cheat compatibility risk running it any other way under Wine does — check the game's own Wine/CrossOver compatibility status first.
+ResPilot doesn't modify or interact with anti-cheat or account systems; it's just a bottle/display manager. Epic login, library, and downloads go through the open-source Legendary client talking to Epic's servers directly — ResPilot never touches Epic's own client — and the game itself just runs under Wine like any other Windows title. That said, running any game under Wine carries the same anti-cheat compatibility risk running it any other way under Wine does — check the game's own Wine/CrossOver compatibility status first.
 
 **How do I update ResPilot?**
 Download the latest `ResPilot.app.zip` from [Releases](../../releases) and drag it over the old copy in Applications — your profiles and bottles (stored in `~/Library/Application Support/ResPilot`) are untouched by an app update.
@@ -281,7 +307,7 @@ Issues and PRs welcome. The test suite (`swift test`) is the contract — a chan
 - [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds) — the free, community-maintained macOS packaging of upstream WineHQ that `WineEngineManager` downloads (the same build Homebrew's `wine@staging` cask installs — deliberately not `wine-stable`, which fails to boot on Apple Silicon macOS Sequoia; see `WineEngineManager`'s doc comment).
 - [Winetricks](https://github.com/Winetricks/winetricks) (GNU LGPL v2.1) — the dependency installer ResPilot shells out to, exactly the way Bottles, Lutris, and Sikarugir do.
 - [Wineskin Winery](https://github.com/Gcenx/WineskinServer) / Kegworks / Sikarugir — the free wrapper-app lineage ResPilot also discovers and manages.
-- [Heroic Games Launcher](https://heroicgameslauncher.com/) (GPLv3) — the free, open-source, native macOS Epic/GOG/Amazon client `NativeAppInstaller` installs for Epic Games Store, in place of Epic's own Windows installer (which doesn't complete under Wine) — see the "Epic Games (via Heroic)" catalog entry and its `knownIssue` for the exact upstream bugs this routes around.
+- [Legendary](https://github.com/derrod/legendary) (GPLv3) — the open-source Epic Games client ResPilot drives for Epic login/install/launch, the same engine Heroic Games Launcher uses. Downloaded once to ResPilot's support directory, never bundled in this repo.
 
 ## License
 

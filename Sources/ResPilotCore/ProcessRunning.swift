@@ -25,15 +25,29 @@ public struct ProcessResult: Equatable, Sendable {
 public protocol ProcessRunning: Sendable {
     /// `timeout` bounds total wall-clock time (launch through exit). `nil`
     /// waits indefinitely — reserved for calls already known to be fast
-    /// and local (a single `wine reg add`, `cxbottle --create`). Anything
-    /// that can touch the network or run a vendor's own installer/verb
-    /// script (Winetricks, the final installer run) MUST pass a finite
-    /// value: verified against a real hang (a Winetricks verb that
-    /// silently stalled mid-run, no subprocess, no network activity, still
-    /// "installing" 30+ minutes later) that a bare `Process` +
-    /// `waitUntilExit()` has no way to recover from on its own.
+    /// and local (a single `wine reg add`, `cxbottle --create`), or a
+    /// user-controlled game session (`LegendaryClient.launch`, which ends
+    /// only when the player quits the game). Anything that can touch the
+    /// network or run a vendor's own installer/verb script (Winetricks,
+    /// the final installer run) MUST pass a finite value: verified
+    /// against a real hang (a Winetricks verb that silently stalled
+    /// mid-run, no subprocess, no network activity, still "installing"
+    /// 30+ minutes later) that a bare `Process` + `waitUntilExit()` has
+    /// no way to recover from on its own.
     @discardableResult
     func run(executable: String, arguments: [String], environment: [String: String]?, timeout: TimeInterval?) throws -> ProcessResult
+
+    /// Same as the 4-arg `run`, plus `onOutputLine` — invoked once per
+    /// complete line of combined stdout/stderr as the process runs,
+    /// instead of only after it exits. Needed for GB-scale, hours-long
+    /// downloads (`LegendaryClient.installGame`) where a caller wants to
+    /// show progress rather than block silently until completion. A
+    /// protocol requirement (not just an extension method) so dynamic
+    /// dispatch actually reaches `FoundationProcessRunner`'s real
+    /// implementation rather than always resolving to the ignoring
+    /// default below.
+    @discardableResult
+    func run(executable: String, arguments: [String], environment: [String: String]?, timeout: TimeInterval?, onOutputLine: (@Sendable (String) -> Void)?) throws -> ProcessResult
 }
 
 extension ProcessRunning {
@@ -42,6 +56,14 @@ extension ProcessRunning {
     @discardableResult
     public func run(executable: String, arguments: [String], environment: [String: String]?) throws -> ProcessResult {
         try run(executable: executable, arguments: arguments, environment: environment, timeout: nil)
+    }
+
+    /// Default: forwards to the 4-arg `run`, ignoring `onOutputLine` — so
+    /// `FakeProcessRunner` and any other existing conformer compile
+    /// unchanged without adopting streaming.
+    @discardableResult
+    public func run(executable: String, arguments: [String], environment: [String: String]?, timeout: TimeInterval?, onOutputLine: (@Sendable (String) -> Void)?) throws -> ProcessResult {
+        try run(executable: executable, arguments: arguments, environment: environment, timeout: timeout)
     }
 }
 
@@ -66,6 +88,16 @@ public final class FoundationProcessRunner: ProcessRunning {
 
     @discardableResult
     public func run(executable: String, arguments: [String], environment: [String: String]?, timeout: TimeInterval?) throws -> ProcessResult {
+        try run(executable: executable, arguments: arguments, environment: environment, timeout: timeout, onOutputLine: nil)
+    }
+
+    /// Real implementation backing both `run` overloads. `onOutputLine`,
+    /// when non-nil, gets one call per complete line of stdout/stderr as
+    /// the process runs (see the protocol's doc comment); `nil` skips the
+    /// line-splitting work entirely, leaving the 4-arg overload's
+    /// behavior byte-for-byte identical to before this method existed.
+    @discardableResult
+    public func run(executable: String, arguments: [String], environment: [String: String]?, timeout: TimeInterval?, onOutputLine: (@Sendable (String) -> Void)?) throws -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -83,13 +115,21 @@ public final class FoundationProcessRunner: ProcessRunning {
         // completion against a timeout below.
         let stdoutBuffer = ProcessOutputBuffer()
         let stderrBuffer = ProcessOutputBuffer()
+        let stdoutStreamer = onOutputLine.map { LineStreamer(onLine: $0) }
+        let stderrStreamer = onOutputLine.map { LineStreamer(onLine: $0) }
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            if !data.isEmpty { stdoutBuffer.append(data) }
+            if !data.isEmpty {
+                stdoutBuffer.append(data)
+                stdoutStreamer?.append(data)
+            }
         }
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            if !data.isEmpty { stderrBuffer.append(data) }
+            if !data.isEmpty {
+                stderrBuffer.append(data)
+                stderrStreamer?.append(data)
+            }
         }
 
         let exited = DispatchSemaphore(value: 0)
@@ -116,6 +156,8 @@ public final class FoundationProcessRunner: ProcessRunning {
 
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
+        stdoutStreamer?.flush()
+        stderrStreamer?.flush()
 
         if timedOut {
             throw ProcessRunError.timedOut(seconds: timeout ?? 0)
@@ -185,5 +227,46 @@ private final class ProcessOutputBuffer: @unchecked Sendable {
     func append(_ chunk: Data) {
         lock.lock(); defer { lock.unlock() }
         _data.append(chunk)
+    }
+}
+
+/// Splits each stream's chunks into complete lines as they arrive,
+/// carrying any dangling partial line across chunks — used by
+/// `FoundationProcessRunner`'s streaming `run` overload to turn raw pipe
+/// bytes into per-line `onOutputLine` callbacks in real time instead of
+/// only after the process exits.
+private final class LineStreamer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var remainder = Data()
+    private let newline = Data([0x0A])
+    private let onLine: @Sendable (String) -> Void
+
+    init(onLine: @escaping @Sendable (String) -> Void) {
+        self.onLine = onLine
+    }
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        remainder.append(chunk)
+        var lines: [String] = []
+        while let range = remainder.range(of: newline) {
+            let lineData = remainder.subdata(in: remainder.startIndex..<range.lowerBound)
+            remainder.removeSubrange(remainder.startIndex..<range.upperBound)
+            lines.append(String(data: lineData, encoding: .utf8) ?? "")
+        }
+        lock.unlock()
+        for line in lines { onLine(line) }
+    }
+
+    /// Flushes a trailing line that never got a terminating newline (e.g.
+    /// the process's very last bit of output before exit) so it isn't
+    /// silently dropped.
+    func flush() {
+        lock.lock()
+        let trailing = remainder
+        remainder = Data()
+        lock.unlock()
+        guard !trailing.isEmpty, let line = String(data: trailing, encoding: .utf8) else { return }
+        onLine(line)
     }
 }

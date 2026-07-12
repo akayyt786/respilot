@@ -27,11 +27,21 @@ final class FakeProcessRunner: ProcessRunning, @unchecked Sendable {
     var resultProvider: (@Sendable (Invocation) -> ProcessResult?)?
     var defaultResult = ProcessResult(exitCode: 0, stdout: "", stderr: "")
 
+    /// Lines the streaming `run` overload emits through `onOutputLine`
+    /// before returning, in order — lets tests assert progress forwarding
+    /// (e.g. `LegendaryClient.installGame`) without a real process.
+    var streamLines: [String] = []
+
     func run(executable: String, arguments: [String], environment: [String: String]?, timeout: TimeInterval?) throws -> ProcessResult {
+        try run(executable: executable, arguments: arguments, environment: environment, timeout: timeout, onOutputLine: nil)
+    }
+
+    func run(executable: String, arguments: [String], environment: [String: String]?, timeout: TimeInterval?, onOutputLine: (@Sendable (String) -> Void)?) throws -> ProcessResult {
         let invocation = Invocation(executable: executable, arguments: arguments, environment: environment, timeout: timeout)
         lock.lock()
         _invocations.append(invocation)
         lock.unlock()
+        for line in streamLines { onOutputLine?(line) }
         return resultProvider?(invocation) ?? defaultResult
     }
 }

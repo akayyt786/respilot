@@ -34,6 +34,16 @@ do {
         try await cmdInstallApp(args)
     case "install-engine":
         try await cmdInstallEngine()
+    case "epic-login":
+        try await cmdEpicLogin(args)
+    case "epic-list":
+        try await cmdEpicList()
+    case "epic-install":
+        try await cmdEpicInstall(args)
+    case "epic-launch":
+        try await cmdEpicLaunch(args)
+    case "epic-logout":
+        try cmdEpicLogout()
     case "help", "--help", "-h":
         printHelp()
     default:

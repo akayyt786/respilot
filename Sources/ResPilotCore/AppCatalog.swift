@@ -17,6 +17,13 @@ public enum AppInstallKind: Equatable, Sendable {
     /// separate because the app itself ships architecture-specific builds
     /// (unlike ResPilot's own Wine engine, which runs the same x86_64
     /// build under Rosetta 2 on both).
+    /// No built-in catalog entry currently uses this — Epic Games moved
+    /// to native support via `LegendaryClient` instead (see that class's
+    /// doc comment) rather than a `.nativeMacApp` third-party launcher.
+    /// Kept as public, unit-tested library API: still the right shape for
+    /// a future case where a vendor's own Windows installer doesn't work
+    /// under Wine and a genuinely free, actively-maintained native
+    /// alternative exists.
     case nativeMacApp(arm64URL: URL, x64URL: URL)
 }
 
@@ -103,17 +110,6 @@ public enum AppCatalog {
             downloadPageURL: URL(string: "https://store.steampowered.com/")!,
             directDownloadURL: URL(string: "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe")!,
             recommendedVerbs: ["corefonts", "vcrun2019"]
-        ),
-        CatalogApp(
-            name: "Epic Games (via Heroic)",
-            vendor: "Heroic Games Launcher — open source, GPLv3, not affiliated with Epic",
-            downloadPageURL: URL(string: "https://heroicgameslauncher.com/")!,
-            recommendedVerbs: [],
-            knownIssue: "Epic's own Windows installer/launcher does not complete under Wine: two independent, confirmed upstream bugs block it back-to-back (a certificate-store verification failure, then a wine-mono crash — see the WineHQ/Wine-Mono trackers). CodeWeavers' own official CrossOver guidance doesn't run Epic's installer either — they recommend Heroic Games Launcher instead (support.codeweavers.com/common-actions/heroic-games-launcher-in-crossover). ResPilot does the same: this installs Heroic directly as a native Mac app, no Wine bottle involved. Sign into your Epic account inside Heroic to browse, download, and launch your library; Heroic can use CrossOver as a Windows-game runner if you have it, or point at a ResPilot-managed bottle for any Windows-only title.",
-            installKind: .nativeMacApp(
-                arm64URL: URL(string: "https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/releases/download/v2.22.0/Heroic-2.22.0-macOS-arm64.zip")!,
-                x64URL: URL(string: "https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/releases/download/v2.22.0/Heroic-2.22.0-macOS-x64.zip")!
-            )
         ),
         CatalogApp(
             name: "Rockstar Games Launcher",
