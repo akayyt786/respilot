@@ -236,9 +236,13 @@ func cmdListApps() {
     print("Available apps (Winetricks handles common dependencies; see notes for known issues):")
     for app in AppCatalog.popular {
         print("  \(app.name) — \(app.vendor)")
-        print("    \(app.directDownloadURL != nil ? "One-click install (auto-downloads from \(app.directDownloadURL!.host ?? "vendor site"))" : "Manual only — no verified direct link")")
+        print("    \(app.resolvedDirectDownloadURL != nil ? "One-click install (auto-downloads from \(app.resolvedDirectDownloadURL!.host ?? "vendor site"))" : "Manual only — no verified direct link")")
         print("    Download page: \(app.downloadPageURL.absoluteString)")
-        print("    Winetricks verbs: \(app.recommendedVerbs.joined(separator: ", "))")
+        if case .nativeMacApp = app.installKind {
+            print("    Installs as a native Mac app directly into /Applications — no Wine bottle.")
+        } else {
+            print("    Winetricks verbs: \(app.recommendedVerbs.joined(separator: ", "))")
+        }
         if let issue = app.knownIssue {
             print("    Known issue: \(issue)")
         }
@@ -250,69 +254,106 @@ func cmdInstallApp(_ args: ArgParser) async throws {
     guard let catalogApp = AppCatalog.popular.first(where: { $0.name.localizedCaseInsensitiveContains(query) }) else {
         throw CLIError.invalidValue("app", "\"\(query)\" not found. Run \"respilot list-apps\" to see options.")
     }
-    let bottleName = args.string("bottle-name") ?? catalogApp.name.replacingOccurrences(of: " ", with: "")
 
     if args.flag("dry-run") {
-        print("""
-        Would install "\(catalogApp.name)":
-          Vendor:            \(catalogApp.vendor)
-          Bottle name:       \(bottleName)
-          Winetricks verbs:  \(catalogApp.recommendedVerbs.joined(separator: ", "))
-          Download page:     \(catalogApp.downloadPageURL.absoluteString)
-        """)
+        switch catalogApp.installKind {
+        case .wineBottle:
+            let bottleName = args.string("bottle-name") ?? catalogApp.name.replacingOccurrences(of: " ", with: "")
+            print("""
+            Would install "\(catalogApp.name)":
+              Vendor:            \(catalogApp.vendor)
+              Bottle name:       \(bottleName)
+              Winetricks verbs:  \(catalogApp.recommendedVerbs.joined(separator: ", "))
+              Download page:     \(catalogApp.downloadPageURL.absoluteString)
+            """)
+        case .nativeMacApp:
+            print("""
+            Would install "\(catalogApp.name)":
+              Vendor:            \(catalogApp.vendor)
+              Install target:    /Applications (native Mac app, no Wine bottle)
+              Download page:     \(catalogApp.downloadPageURL.absoluteString)
+            """)
+        }
         if let issue = catalogApp.knownIssue {
             print("  Known issue:       \(issue)")
         }
         return
     }
 
-    let installerPath: String
-    if let providedPath = args.string("installer") {
-        installerPath = providedPath
-    } else {
-        guard let directURL = catalogApp.directDownloadURL else {
-            throw CLIError.invalidValue(
-                "installer",
-                "No verified direct download link for \"\(catalogApp.name)\" — pass --installer <path to a file you downloaded>."
-            )
-        }
-        print("Downloading \(catalogApp.name) installer from \(directURL.host ?? directURL.absoluteString)...")
-        let localURL = try await InstallerDownloader().download(directURL)
-        installerPath = localURL.path
-    }
+    let installerPath: String? = args.string("installer")
 
-    let engine = WineEngineManager()
-    if !engine.isInstalled {
-        print("Downloading ResPilot's free Wine engine (WineHQ, ~190MB, one-time)...")
-        try await engine.install(onProgress: { status in print("  \(status)") })
-    }
-
-    let winetricks = Winetricks()
-    if !winetricks.isInstalled {
-        print("Setting up Winetricks...")
-        try await winetricks.install()
-    }
-
-    print("Installing \"\(catalogApp.name)\" into bottle \"\(bottleName)\"...")
-    let installer = AppInstaller(winetricks: winetricks)
-    let bottle = try await installer.install(
-        bottleName: bottleName,
-        bottleDirectory: BottleLocator.defaultRespilotBottleDirectory(),
-        wineBinary: engine.wineBinaryPath,
-        kind: .respilotManaged,
-        verbs: catalogApp.recommendedVerbs,
-        installerPath: installerPath,
-        onStep: { step in
-            switch step {
-            case .creatingBottle: print("  Creating bottle...")
-            case .installingDependencies(let verb): print("  Installing dependency: \(verb)...")
-            case .runningInstaller: print("  Running the \(catalogApp.name) installer...")
-            case .done: print("  Done.")
+    switch catalogApp.installKind {
+    case .nativeMacApp:
+        let source: URL
+        if let installerPath {
+            source = URL(fileURLWithPath: installerPath)
+        } else {
+            guard let directURL = catalogApp.resolvedDirectDownloadURL else {
+                throw CLIError.invalidValue(
+                    "installer",
+                    "No verified direct download link for \"\(catalogApp.name)\" — pass --installer <path to a file you downloaded>."
+                )
             }
+            source = directURL
         }
-    )
-    print("Installed. Bottle: \(bottle.prefixPath)")
-    print("Run \"respilot add-profile\" with --kind respilot --bottle-name \(bottleName) once you know the installed launcher's path inside the bottle, to finish creating a profile.")
+        print("Installing \"\(catalogApp.name)\"...")
+        let installedPath = try await NativeAppInstaller().install(
+            from: source,
+            appName: catalogApp.name,
+            onProgress: { status in print("  \(status)") }
+        )
+        print("Installed at \(installedPath).")
+
+    case .wineBottle:
+        let bottleName = args.string("bottle-name") ?? catalogApp.name.replacingOccurrences(of: " ", with: "")
+        let resolvedInstallerPath: String
+        if let installerPath {
+            resolvedInstallerPath = installerPath
+        } else {
+            guard let directURL = catalogApp.resolvedDirectDownloadURL else {
+                throw CLIError.invalidValue(
+                    "installer",
+                    "No verified direct download link for \"\(catalogApp.name)\" — pass --installer <path to a file you downloaded>."
+                )
+            }
+            print("Downloading \(catalogApp.name) installer from \(directURL.host ?? directURL.absoluteString)...")
+            let localURL = try await InstallerDownloader().download(directURL)
+            resolvedInstallerPath = localURL.path
+        }
+
+        let engine = WineEngineManager()
+        if !engine.isInstalled {
+            print("Downloading ResPilot's free Wine engine (WineHQ, ~190MB, one-time)...")
+            try await engine.install(onProgress: { status in print("  \(status)") })
+        }
+
+        let winetricks = Winetricks()
+        if !winetricks.isInstalled {
+            print("Setting up Winetricks...")
+            try await winetricks.install()
+        }
+
+        print("Installing \"\(catalogApp.name)\" into bottle \"\(bottleName)\"...")
+        let installer = AppInstaller(winetricks: winetricks)
+        let bottle = try await installer.install(
+            bottleName: bottleName,
+            bottleDirectory: BottleLocator.defaultRespilotBottleDirectory(),
+            wineBinary: engine.wineBinaryPath,
+            kind: .respilotManaged,
+            verbs: catalogApp.recommendedVerbs,
+            installerPath: resolvedInstallerPath,
+            onStep: { step in
+                switch step {
+                case .creatingBottle: print("  Creating bottle...")
+                case .installingDependencies(let verb): print("  Installing dependency: \(verb)...")
+                case .runningInstaller: print("  Running the \(catalogApp.name) installer...")
+                case .done: print("  Done.")
+                }
+            }
+        )
+        print("Installed. Bottle: \(bottle.prefixPath)")
+        print("Run \"respilot add-profile\" with --kind respilot --bottle-name \(bottleName) once you know the installed launcher's path inside the bottle, to finish creating a profile.")
+    }
 }
 
 func cmdInstallEngine() async throws {
@@ -348,13 +389,15 @@ func printHelp() {
       respilot apply          --name <name> [--dry-run]
       respilot restore
       respilot list-apps
-      respilot install-app    --app steam|"epic games launcher"|"rockstar games launcher"
+      respilot install-app    --app steam|"epic games"|"rockstar games launcher"
                                [--installer <path to a file you already downloaded>] [--bottle-name <name>] [--dry-run]
-                               (creates a bottle against ResPilot's own free engine — downloading it
-                                first if needed — provisions common Wine dependencies via Winetricks,
-                                then runs the installer, downloaded automatically from the vendor's own
-                                site unless --installer overrides it; see "respilot list-apps" for what
-                                each one needs and any known issues)
+                               (Steam/Rockstar: creates a bottle against ResPilot's own free engine —
+                                downloading it first if needed — provisions common Wine dependencies via
+                                Winetricks, then runs the installer. Epic: installs Heroic Games Launcher
+                                directly as a native Mac app instead — Epic's own Windows installer
+                                doesn't complete under Wine; see "respilot list-apps" for why. Installer
+                                downloaded automatically from the vendor's own domain unless --installer
+                                overrides it)
       respilot install-engine (downloads ResPilot's free Wine engine ahead of time; "install-app"
                                 also does this automatically on first use)
 

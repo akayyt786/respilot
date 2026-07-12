@@ -84,10 +84,15 @@ private struct AppCatalogCard: View {
         _bottleName = State(initialValue: app.name.replacingOccurrences(of: " ", with: ""))
     }
 
+    private var isNativeMacApp: Bool {
+        if case .nativeMacApp = app.installKind { return true }
+        return false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: "shippingbox")
+                Image(systemName: isNativeMacApp ? "app.badge" : "shippingbox")
                     .font(.title2)
                     .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 2) {
@@ -95,6 +100,12 @@ private struct AppCatalogCard: View {
                     Text(app.vendor).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+            }
+
+            if isNativeMacApp {
+                Text("Installs directly to /Applications — native Mac app, no Wine bottle.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 6) {
@@ -116,9 +127,11 @@ private struct AppCatalogCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            TextField("Bottle name", text: $bottleName)
-                .textFieldStyle(.roundedBorder)
-                .font(.caption)
+            if !isNativeMacApp {
+                TextField("Bottle name", text: $bottleName)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+            }
 
             HStack {
                 Button {
@@ -127,13 +140,13 @@ private struct AppCatalogCard: View {
                     Label("Install", systemImage: "square.and.arrow.down")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isBusy || bottleName.isEmpty || app.directDownloadURL == nil)
+                .disabled(isBusy || (!isNativeMacApp && bottleName.isEmpty) || app.resolvedDirectDownloadURL == nil)
 
                 Spacer()
 
                 Menu {
                     Button("Use a file I already downloaded…") { pickInstallerAndInstall() }
-                        .disabled(isBusy || bottleName.isEmpty)
+                        .disabled(isBusy || (!isNativeMacApp && bottleName.isEmpty))
                     Button("Open download page") { NSWorkspace.shared.open(app.downloadPageURL) }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -142,7 +155,7 @@ private struct AppCatalogCard: View {
                 .frame(width: 24)
             }
 
-            if app.directDownloadURL == nil {
+            if app.resolvedDirectDownloadURL == nil {
                 Text("No verified direct link for this app — use \"Use a file I already downloaded…\".")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -155,8 +168,9 @@ private struct AppCatalogCard: View {
 
     private func pickInstallerAndInstall() {
         let panel = NSOpenPanel()
-        panel.title = "Choose the \(app.name) installer you downloaded"
-        panel.allowedContentTypes = ["exe", "msi"].compactMap { UTType(filenameExtension: $0) }
+        panel.title = "Choose the \(app.name) \(isNativeMacApp ? "download" : "installer") you downloaded"
+        let extensions = isNativeMacApp ? ["zip", "dmg"] : ["exe", "msi"]
+        panel.allowedContentTypes = extensions.compactMap { UTType(filenameExtension: $0) }
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false

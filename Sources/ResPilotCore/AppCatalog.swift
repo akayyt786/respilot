@@ -1,5 +1,25 @@
 import Foundation
 
+/// How `AppInstaller`/`NativeAppInstaller` should install a `CatalogApp`.
+public enum AppInstallKind: Equatable, Sendable {
+    /// The vendor's own Windows installer, run inside a fresh Wine bottle
+    /// via `AppInstaller` (creates the bottle, provisions
+    /// `recommendedVerbs` through Winetricks, runs the installer).
+    case wineBottle
+    /// A native macOS `.app`, downloaded as a `.zip` and installed
+    /// straight into `/Applications` via `NativeAppInstaller` — no Wine
+    /// bottle, no Winetricks, no engine involved. Used when the vendor's
+    /// own Windows installer doesn't work reliably under Wine (see that
+    /// entry's `knownIssue`) and a genuinely free, actively-maintained
+    /// native alternative exists instead — see `NativeAppInstaller`'s doc
+    /// comment for the precedent this follows (CodeWeavers' own official
+    /// CrossOver guidance for Epic Games Store). `arm64URL`/`x64URL` are
+    /// separate because the app itself ships architecture-specific builds
+    /// (unlike ResPilot's own Wine engine, which runs the same x86_64
+    /// build under Rosetta 2 on both).
+    case nativeMacApp(arm64URL: URL, x64URL: URL)
+}
+
 /// A curated shortcut, not a compatibility promise. ResPilot has no app
 /// compatibility-testing infrastructure of its own — unlike CrossOver,
 /// which ships ratings ("Runs Great"/"Runs Well") backed by CodeWeavers'
@@ -17,22 +37,26 @@ public struct CatalogApp: Identifiable, Equatable, Sendable {
     /// discovery that could change without notice.
     public let downloadPageURL: URL
     /// A direct link to the vendor's own Windows installer, on the
-    /// vendor's own domain. None of Steam, Epic, or Rockstar *document* a
-    /// stable direct link for public use — their support pages just say
-    /// "go to the website and click Install/Download" — but the button on
-    /// each of those pages resolves to one of these under the hood. Found
-    /// by inspecting each vendor's real page/network behavior (not a
-    /// search-result guess, not a third-party mirror) and verified live
-    /// before shipping. `nil` means only the manual (download-page) path
-    /// is available for that entry.
+    /// vendor's own domain. Only meaningful for `.wineBottle` entries —
+    /// see `resolvedDirectDownloadURL` for the kind-aware accessor every
+    /// call site should actually use. None of Steam, Epic, or Rockstar
+    /// *document* a stable direct link for public use — their support
+    /// pages just say "go to the website and click Install/Download" —
+    /// but the button on each of those pages resolves to one of these
+    /// under the hood. Found by inspecting each vendor's real
+    /// page/network behavior (not a search-result guess, not a
+    /// third-party mirror) and verified live before shipping. `nil` means
+    /// only the manual (download-page) path is available for that entry.
     public let directDownloadURL: URL?
-    /// Community-documented Winetricks verbs worth trying first. Starting
-    /// points, not guarantees — see `knownIssue` for cases where even
-    /// these are currently insufficient.
+    /// Community-documented Winetricks verbs worth trying first. Empty
+    /// for `.nativeMacApp` entries — nothing to provision, there's no
+    /// bottle. Starting points, not guarantees — see `knownIssue` for
+    /// cases where even these are currently insufficient.
     public let recommendedVerbs: [String]
     /// A specific, sourced caveat, surfaced in the UI instead of silently
     /// letting the user hit a confusing failure.
     public let knownIssue: String?
+    public let installKind: AppInstallKind
 
     public init(
         name: String,
@@ -40,7 +64,8 @@ public struct CatalogApp: Identifiable, Equatable, Sendable {
         downloadPageURL: URL,
         directDownloadURL: URL? = nil,
         recommendedVerbs: [String],
-        knownIssue: String? = nil
+        knownIssue: String? = nil,
+        installKind: AppInstallKind = .wineBottle
     ) {
         self.name = name
         self.vendor = vendor
@@ -48,6 +73,25 @@ public struct CatalogApp: Identifiable, Equatable, Sendable {
         self.directDownloadURL = directDownloadURL
         self.recommendedVerbs = recommendedVerbs
         self.knownIssue = knownIssue
+        self.installKind = installKind
+    }
+
+    /// The URL "Install" actually downloads from, kind- and
+    /// architecture-aware. `nil` means only the manual download-page path
+    /// is available. Every call site (CLI, GUI) should read this instead
+    /// of `directDownloadURL` directly, so a `.nativeMacApp` entry's
+    /// one-click install works the same way a `.wineBottle` entry's does.
+    public var resolvedDirectDownloadURL: URL? {
+        switch installKind {
+        case .wineBottle:
+            return directDownloadURL
+        case .nativeMacApp(let arm64URL, let x64URL):
+            #if arch(arm64)
+            return arm64URL
+            #else
+            return x64URL
+            #endif
+        }
     }
 }
 
@@ -61,14 +105,15 @@ public enum AppCatalog {
             recommendedVerbs: ["corefonts", "vcrun2019"]
         ),
         CatalogApp(
-            name: "Epic Games Launcher",
-            vendor: "Epic Games",
-            downloadPageURL: URL(string: "https://store.epicgames.com/download")!,
-            // Epic's own launcher API — redirects to whatever the current
-            // version's CDN URL is, so this stays correct as they ship updates.
-            directDownloadURL: URL(string: "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.exe")!,
-            recommendedVerbs: ["vcrun2019"],
-            knownIssue: "Currently does not complete on Wine — two independent, confirmed upstream blockers stack back-to-back. (1) The installer verifies its embedded MSI payload's Authenticode signature before running and fails with \"The embedded MSI payload failed signature verification. Certificate CN does not match 'Epic Games Inc.'\", because a fresh Wine bottle's certificate store ships with no root CAs (long-standing Wine/WinTrust limitation; no Winetricks/registry fix exists). (2) Clicking past that, the installer's .NET-based components crash Wine's built-in Mono runtime with \"wine-mono-11.1.0/mono/mono/eglib/gmisc-win32.c: assertion 'filename != NULL' failed\" (tracked upstream, e.g. lutris/lutris#6690) — fixing this needs a full standalone Mono MSI installed into the bottle, not a Winetricks verb. Reproduced live against a real bottle, both blockers confirmed independently; not a ResPilot bug and not something its provisioning can currently route around."
+            name: "Epic Games (via Heroic)",
+            vendor: "Heroic Games Launcher — open source, GPLv3, not affiliated with Epic",
+            downloadPageURL: URL(string: "https://heroicgameslauncher.com/")!,
+            recommendedVerbs: [],
+            knownIssue: "Epic's own Windows installer/launcher does not complete under Wine: two independent, confirmed upstream bugs block it back-to-back (a certificate-store verification failure, then a wine-mono crash — see the WineHQ/Wine-Mono trackers). CodeWeavers' own official CrossOver guidance doesn't run Epic's installer either — they recommend Heroic Games Launcher instead (support.codeweavers.com/common-actions/heroic-games-launcher-in-crossover). ResPilot does the same: this installs Heroic directly as a native Mac app, no Wine bottle involved. Sign into your Epic account inside Heroic to browse, download, and launch your library; Heroic can use CrossOver as a Windows-game runner if you have it, or point at a ResPilot-managed bottle for any Windows-only title.",
+            installKind: .nativeMacApp(
+                arm64URL: URL(string: "https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/releases/download/v2.22.0/Heroic-2.22.0-macOS-arm64.zip")!,
+                x64URL: URL(string: "https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/releases/download/v2.22.0/Heroic-2.22.0-macOS-x64.zip")!
+            )
         ),
         CatalogApp(
             name: "Rockstar Games Launcher",

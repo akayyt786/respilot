@@ -28,6 +28,7 @@ final class AppModel: ObservableObject {
     private let winetricks: Winetricks
     private let installerDownloader: InstallerDownloader
     private let wineEngineManager: WineEngineManager
+    private let nativeAppInstaller: NativeAppInstaller
 
     init(
         store: ProfileStore = ProfileStore(),
@@ -37,7 +38,8 @@ final class AppModel: ObservableObject {
         installer: AppInstaller = AppInstaller(),
         winetricks: Winetricks = Winetricks(),
         installerDownloader: InstallerDownloader = InstallerDownloader(),
-        wineEngineManager: WineEngineManager = WineEngineManager()
+        wineEngineManager: WineEngineManager = WineEngineManager(),
+        nativeAppInstaller: NativeAppInstaller = NativeAppInstaller()
     ) {
         self.store = store
         self.locator = locator
@@ -47,6 +49,7 @@ final class AppModel: ObservableObject {
         self.winetricks = winetricks
         self.installerDownloader = installerDownloader
         self.wineEngineManager = wineEngineManager
+        self.nativeAppInstaller = nativeAppInstaller
         refreshAll()
     }
 
@@ -141,25 +144,40 @@ final class AppModel: ObservableObject {
     /// created on first launch.
     var wineEngineBinaryPath: String { wineEngineManager.wineBinaryPath }
 
-    /// Creates a bottle, provisions `app`'s recommended Winetricks verbs,
-    /// then runs an installer inside it — genuinely one click when
-    /// `app.directDownloadURL` exists (downloaded automatically); pass
-    /// `installerPath` yourself to use a file you already downloaded
-    /// instead (the fallback if the vendor's link ever changes). Uses
-    /// ResPilot's own free, self-managed Wine engine — downloading it
-    /// first if this is the first install ever — so no CrossOver install
-    /// is required. Does not create a `GameProfile` — see `AppInstaller`'s
-    /// own doc comment for why; `lastInstalledBottle` is there so a view
-    /// can hand it straight to `ProfileEditorView`.
+    /// For a `.wineBottle` app: creates a bottle, provisions
+    /// `app`'s recommended Winetricks verbs, then runs an installer
+    /// inside it — genuinely one click when `app.resolvedDirectDownloadURL`
+    /// exists (downloaded automatically); pass `installerPath` yourself to
+    /// use a file you already downloaded instead (the fallback if the
+    /// vendor's link ever changes). Uses ResPilot's own free, self-managed
+    /// Wine engine — downloading it first if this is the first install
+    /// ever — so no CrossOver install is required. Does not create a
+    /// `GameProfile` — see `AppInstaller`'s own doc comment for why;
+    /// `lastInstalledBottle` is there so a view can hand it straight to
+    /// `ProfileEditorView`.
+    ///
+    /// For a `.nativeMacApp` app (see `CatalogApp.AppInstallKind`):
+    /// downloads and installs straight into `/Applications` via
+    /// `NativeAppInstaller` — no engine, no bottle, no Winetricks.
+    /// `bottleName` is ignored in this branch.
     func installApp(_ app: CatalogApp, bottleName: String, installerPath: String? = nil) {
         guard !isInstallingApp else { return }
-        if installerPath == nil, app.directDownloadURL == nil {
+        if installerPath == nil, app.resolvedDirectDownloadURL == nil {
             lastError = "No direct download link for \(app.name); choose a file you've already downloaded instead."
             return
         }
         isInstallingApp = true
         installStatusText = "Starting…"
         lastError = nil
+        switch app.installKind {
+        case .wineBottle:
+            installWineBottleApp(app, bottleName: bottleName, installerPath: installerPath)
+        case .nativeMacApp:
+            installNativeMacApp(app, installerPath: installerPath)
+        }
+    }
+
+    private func installWineBottleApp(_ app: CatalogApp, bottleName: String, installerPath: String?) {
         Task {
             do {
                 if !wineEngineManager.isInstalled {
@@ -172,7 +190,7 @@ final class AppModel: ObservableObject {
                     resolvedInstallerPath = installerPath
                 } else {
                     installStatusText = "Downloading the \(app.name) installer…"
-                    let localURL = try await installerDownloader.download(app.directDownloadURL!)
+                    let localURL = try await installerDownloader.download(app.resolvedDirectDownloadURL!)
                     resolvedInstallerPath = localURL.path
                 }
                 if !winetricks.isInstalled {
@@ -192,6 +210,26 @@ final class AppModel: ObservableObject {
                 )
                 lastInstalledBottle = bottle
                 rediscoverBottles()
+                isInstallingApp = false
+            } catch {
+                lastError = error.localizedDescription
+                installStatusText = "Failed"
+                isInstallingApp = false
+            }
+        }
+    }
+
+    private func installNativeMacApp(_ app: CatalogApp, installerPath: String?) {
+        Task {
+            do {
+                let source = installerPath.map { URL(fileURLWithPath: $0) } ?? app.resolvedDirectDownloadURL!
+                _ = try await nativeAppInstaller.install(
+                    from: source,
+                    appName: app.name,
+                    onProgress: { [weak self] status in
+                        Task { @MainActor in self?.installStatusText = status }
+                    }
+                )
                 isInstallingApp = false
             } catch {
                 lastError = error.localizedDescription
