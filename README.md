@@ -214,6 +214,9 @@ Normal on the very first `Install App` or `respilot install-engine` run — it's
 **A game/launcher won't start, or crashes on launch**
 This is a Wine/game compatibility issue, not specific to ResPilot — the same class of problem you'd hit under vanilla Wine, Wineskin, or CrossOver. Check the app's [WineHQ AppDB](https://appdb.winehq.org/) entry for known workarounds and required Winetricks verbs first.
 
+**Epic Games Launcher install fails with "Certificate CN does not match 'Epic Games Inc.'"**
+Reproduced and confirmed: Epic's installer verifies its embedded MSI payload's Authenticode signature before running, and a fresh Wine bottle's certificate store ships with no root CAs — a long-standing upstream Wine/WinTrust limitation, not a ResPilot bug. There's currently no reliable Winetricks or registry fix; Steam and Rockstar Games Launcher don't hit this (different installer technology). Track [upstream Wine root-certificate support](https://www.winehq.org/pipermail/wine-devel/2016-October/115023.html) if you want to follow it.
+
 **Epic Games Launcher install seems to hang on a .NET/DirectX prompt**
 Known upstream issue — the Epic installer bundles its own sub-installers that fail under Wine. Cancel those prompts if they appear; Winetricks' own `dotnet`-family verbs are the more reliable path if something's still missing afterward.
 

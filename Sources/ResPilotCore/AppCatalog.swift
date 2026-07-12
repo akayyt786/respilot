@@ -68,7 +68,7 @@ public enum AppCatalog {
             // version's CDN URL is, so this stays correct as they ship updates.
             directDownloadURL: URL(string: "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.exe")!,
             recommendedVerbs: ["vcrun2019"],
-            knownIssue: "The Epic installer bundles its own .NET/DirectX sub-installers, which are known to fail under Wine (WineHQ AppDB). Cancel those prompts if they appear — Winetricks' own dotnet verbs are the more reliable path if something's still missing afterward."
+            knownIssue: "Epic's installer verifies its embedded MSI payload's Authenticode signature before running — reproduced live: it fails with \"The embedded MSI payload failed signature verification. Certificate CN does not match 'Epic Games Inc.'\" because a fresh Wine bottle's certificate store ships empty (no root CAs). This is a long-standing upstream Wine/WinTrust limitation (wine-devel mailing list: the HKLM\\\\Root store special-casing doesn't reliably support adding certificates), not something Winetricks or ResPilot's provisioning can currently route around. If you get past it, the installer also bundles its own .NET/DirectX sub-installers known to fail under Wine (WineHQ AppDB) — cancel those prompts if they appear; Winetricks' own dotnet verbs are the more reliable path if something's still missing afterward."
         ),
         CatalogApp(
             name: "Rockstar Games Launcher",
