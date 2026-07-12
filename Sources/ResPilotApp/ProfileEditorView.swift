@@ -7,7 +7,7 @@ struct ProfileEditorView: View {
     @Binding var isPresented: Bool
 
     @State private var name = ""
-    @State private var kind: BottleKind = .crossOver
+    @State private var kind: BottleKind = .respilotManaged
     @State private var selectedBottleID: String?
     @State private var useManualBottle = false
     @State private var manualBottleIdentifier = ""
@@ -31,7 +31,27 @@ struct ProfileEditorView: View {
     @State private var validationError: String?
 
     private var discoveredBottles: [DiscoveredBottle] {
-        kind == .crossOver ? model.discoveredCrossOverBottles : model.discoveredWineskinBottles
+        switch kind {
+        case .crossOver: return model.discoveredCrossOverBottles
+        case .wineskinStyle: return model.discoveredWineskinBottles
+        case .respilotManaged: return model.discoveredRespilotManagedBottles
+        }
+    }
+
+    private var manualIdentifierLabel: String {
+        switch kind {
+        case .crossOver: return "Bottle name (as CrossOver knows it)"
+        case .wineskinStyle: return "Prefix path"
+        case .respilotManaged: return "Bottle name"
+        }
+    }
+
+    private var emptyBottleHint: String {
+        switch kind {
+        case .crossOver: return "No CrossOver bottles auto-detected. Enter the bottle name manually."
+        case .wineskinStyle: return "No wrapper apps auto-detected. Enter the path manually."
+        case .respilotManaged: return "No ResPilot-managed bottles yet — enter a name to create one on first launch, or use Install App for a guided setup."
+        }
     }
 
     var body: some View {
@@ -42,6 +62,7 @@ struct ProfileEditorView: View {
 
             Section("Bottle") {
                 Picker("Type", selection: $kind) {
+                    Text("ResPilot (free, built-in)").tag(BottleKind.respilotManaged)
                     Text("CrossOver").tag(BottleKind.crossOver)
                     Text("Sikarugir / Wineskin").tag(BottleKind.wineskinStyle)
                 }
@@ -55,18 +76,20 @@ struct ProfileEditorView: View {
                             Text(bottle.name).tag(String?.some(bottle.id))
                         }
                     }
-                    Toggle("Enter path manually instead", isOn: $useManualBottle)
+                    Toggle("Enter it manually instead", isOn: $useManualBottle)
                 } else {
-                    Text("No \(kind == .crossOver ? "CrossOver bottles" : "wrapper apps") auto-detected. Enter the path manually.")
+                    Text(emptyBottleHint)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if useManualBottle || discoveredBottles.isEmpty {
-                    TextField(kind == .crossOver ? "Bottle name (as CrossOver knows it)" : "Prefix path", text: $manualBottleIdentifier)
-                    TextField("Wine binary path", text: $manualWineBinary)
-                        .textFieldStyle(.roundedBorder)
+                    TextField(manualIdentifierLabel, text: $manualBottleIdentifier)
+                    if kind != .respilotManaged {
+                        TextField("Wine binary path", text: $manualWineBinary)
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
             }
 
@@ -158,10 +181,10 @@ struct ProfileEditorView: View {
 
     private func resolvedBottle() -> WineBottleTarget? {
         if useManualBottle || discoveredBottles.isEmpty {
-            guard !manualWineBinary.isEmpty else { return nil }
+            guard !manualBottleIdentifier.isEmpty else { return nil }
             switch kind {
             case .crossOver:
-                guard !manualBottleIdentifier.isEmpty else { return nil }
+                guard !manualWineBinary.isEmpty else { return nil }
                 // The CrossOver default bottle directory is documented by
                 // CodeWeavers (~/Library/Application Support/CrossOver/Bottles),
                 // so the manual field only needs the bottle's name.
@@ -174,8 +197,15 @@ struct ProfileEditorView: View {
                     crossOverBottleName: manualBottleIdentifier
                 )
             case .wineskinStyle:
-                guard !manualBottleIdentifier.isEmpty else { return nil }
+                guard !manualWineBinary.isEmpty else { return nil }
                 return WineBottleTarget(kind: .wineskinStyle, prefixPath: manualBottleIdentifier, wineBinaryPath: manualWineBinary)
+            case .respilotManaged:
+                // No manual wine-binary field for this kind — there's only
+                // ever one engine, ResPilot's own (`WineEngineManager`), so
+                // the field is never shown and there's nothing to guard on.
+                let prefixPath = BottleLocator.defaultRespilotBottleDirectory()
+                    .appendingPathComponent(manualBottleIdentifier).path
+                return WineBottleTarget(kind: .respilotManaged, prefixPath: prefixPath, wineBinaryPath: model.wineEngineBinaryPath)
             }
         }
         return discoveredBottles.first(where: { $0.id == selectedBottleID })?.target

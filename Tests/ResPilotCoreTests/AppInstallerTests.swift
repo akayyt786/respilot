@@ -62,6 +62,35 @@ import Testing
         #expect(runner.invocations[3].timeout == 1800)
     }
 
+    @Test func respilotManagedKindCreatesViaWinebootAndOmitsCrossOverBottleName() async throws {
+        let runner = FakeProcessRunner()
+        let (installer, _, dir) = makeInstaller(processRunner: runner)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let installerPath = makeInstallerFile(in: dir)
+        let bottleDir = dir.appendingPathComponent("Bottles")
+        let wineBinary = dir.appendingPathComponent("WineEngine/Wine Staging.app/Contents/Resources/wine/bin/wine").path
+
+        let bottle = try await installer.install(
+            bottleName: "SteamBottle",
+            bottleDirectory: bottleDir,
+            wineBinary: wineBinary,
+            kind: .respilotManaged,
+            verbs: ["corefonts"],
+            installerPath: installerPath
+        )
+
+        #expect(bottle.kind == .respilotManaged)
+        #expect(bottle.crossOverBottleName == nil)
+        #expect(bottle.prefixPath == bottleDir.appendingPathComponent("SteamBottle").path)
+
+        // 1 wineboot init + 1 verb + 1 installer run — no cxbottle involved.
+        #expect(runner.invocations.count == 3)
+        #expect(runner.invocations[0].executable.hasSuffix("/wineboot"))
+        #expect(runner.invocations[0].arguments == ["--init"])
+        #expect(runner.invocations[1].arguments.last == "corefonts")
+        #expect(runner.invocations[2].arguments.contains(installerPath))
+    }
+
     @Test func missingInstallerFileThrowsAfterBottleAndDependenciesButNeverRunsAnything() async throws {
         let runner = FakeProcessRunner()
         let (installer, _, dir) = makeInstaller(processRunner: runner)

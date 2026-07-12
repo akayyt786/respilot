@@ -103,7 +103,7 @@ private struct ProfileCard: View {
             }
 
             FlowBadges {
-                Badge(profile.bottle.kind == .crossOver ? "CrossOver" : "Sikarugir / Wineskin")
+                Badge(profile.bottle.kind.displayLabel)
                 if !profile.display.isLeaveUnchanged {
                     Badge("\(profile.display.pointWidth)×\(profile.display.pointHeight)\(profile.display.hiDPI ? " HiDPI" : "")")
                 }

@@ -39,6 +39,15 @@ import Testing
         #expect(invocation.environment["WINEPREFIX"] == "/tmp/prefix")
     }
 
+    @Test func respilotManagedInvocationUsesWinePrefixEnvironmentInsteadOfBottleFlag() throws {
+        let bottle = Fixtures.bottleTarget(kind: .respilotManaged, prefixPath: "/tmp/respilot-prefix", crossOverBottleName: nil)
+        let registry = WineRegistry(processRunner: FakeProcessRunner())
+        let invocation = try registry.invocation(for: bottle, subcommand: ["reg", "query", "HKCU"])
+
+        #expect(invocation.arguments == ["reg", "query", "HKCU"])
+        #expect(invocation.environment["WINEPREFIX"] == "/tmp/respilot-prefix")
+    }
+
     @Test func defaultCompatibilityProducesNoEsyncOrMsyncKeys() throws {
         let bottle = Fixtures.bottleTarget()
         let registry = WineRegistry(processRunner: FakeProcessRunner())

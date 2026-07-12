@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var profiles: [GameProfile] = []
     @Published private(set) var discoveredCrossOverBottles: [DiscoveredBottle] = []
     @Published private(set) var discoveredWineskinBottles: [DiscoveredBottle] = []
+    @Published private(set) var discoveredRespilotManagedBottles: [DiscoveredBottle] = []
     @Published private(set) var statusMessage: String = "Idle"
     @Published private(set) var hasPendingRestore: Bool = false
     @Published private(set) var launchingProfileID: UUID?
@@ -26,6 +27,7 @@ final class AppModel: ObservableObject {
     private let installer: AppInstaller
     private let winetricks: Winetricks
     private let installerDownloader: InstallerDownloader
+    private let wineEngineManager: WineEngineManager
 
     init(
         store: ProfileStore = ProfileStore(),
@@ -34,7 +36,8 @@ final class AppModel: ObservableObject {
         breadcrumbStore: DisplayRestoreBreadcrumbStore = DisplayRestoreBreadcrumbStore(),
         installer: AppInstaller = AppInstaller(),
         winetricks: Winetricks = Winetricks(),
-        installerDownloader: InstallerDownloader = InstallerDownloader()
+        installerDownloader: InstallerDownloader = InstallerDownloader(),
+        wineEngineManager: WineEngineManager = WineEngineManager()
     ) {
         self.store = store
         self.locator = locator
@@ -43,6 +46,7 @@ final class AppModel: ObservableObject {
         self.installer = installer
         self.winetricks = winetricks
         self.installerDownloader = installerDownloader
+        self.wineEngineManager = wineEngineManager
         refreshAll()
     }
 
@@ -63,6 +67,7 @@ final class AppModel: ObservableObject {
     func rediscoverBottles() {
         discoveredCrossOverBottles = locator.discoverCrossOverBottles()
         discoveredWineskinBottles = locator.discoverWineskinStyleWrappers()
+        discoveredRespilotManagedBottles = locator.discoverRespilotManagedBottles(wineBinary: wineEngineManager.wineBinaryPath)
     }
 
     func addProfile(_ profile: GameProfile) {
@@ -117,32 +122,37 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// True when a CrossOver.app is installed and ResPilot can discover
-    /// its `wine` binary — the one thing `installApp` needs to create a
-    /// fresh bottle. Views use this to disable the Install action with an
-    /// honest reason instead of letting it fail deep into the flow.
-    var canInstallApps: Bool { discoveredCrossOverWineBinary() != nil }
+    /// `Install App` no longer requires CrossOver: it downloads and uses
+    /// ResPilot's own free engine (`WineEngineManager`) the first time
+    /// it's needed, so this is always `true` — kept as a property (rather
+    /// than deleted outright) so a view checking it doesn't need to change
+    /// if a future gate (e.g. "no disk space") is ever added here.
+    var canInstallApps: Bool { true }
 
-    private func discoveredCrossOverWineBinary() -> URL? {
-        BottleLocator.crossOverAppCandidates()
-            .first { FileManager.default.fileExists(atPath: $0.path) }
-            .flatMap { locator.crossOverWineBinary(appBundle: $0) }
-    }
+    /// Whether `installApp` will need to pause on a one-time ~190MB engine
+    /// download before it can do anything else. Views use this to set
+    /// expectations up front instead of the first install silently taking
+    /// much longer than a later one.
+    var isWineEngineInstalled: Bool { wineEngineManager.isInstalled }
+
+    /// The Wine binary every `.respilotManaged` bottle addresses — same
+    /// path regardless of whether the engine has been downloaded yet, so
+    /// `ProfileEditorView` can build a target for a bottle that will be
+    /// created on first launch.
+    var wineEngineBinaryPath: String { wineEngineManager.wineBinaryPath }
 
     /// Creates a bottle, provisions `app`'s recommended Winetricks verbs,
     /// then runs an installer inside it — genuinely one click when
     /// `app.directDownloadURL` exists (downloaded automatically); pass
     /// `installerPath` yourself to use a file you already downloaded
-    /// instead (the fallback if the vendor's link ever changes). Does not
-    /// create a `GameProfile` — see `AppInstaller`'s own doc comment for
-    /// why; `lastInstalledBottle` is there so a view can hand it straight
-    /// to `ProfileEditorView`.
+    /// instead (the fallback if the vendor's link ever changes). Uses
+    /// ResPilot's own free, self-managed Wine engine — downloading it
+    /// first if this is the first install ever — so no CrossOver install
+    /// is required. Does not create a `GameProfile` — see `AppInstaller`'s
+    /// own doc comment for why; `lastInstalledBottle` is there so a view
+    /// can hand it straight to `ProfileEditorView`.
     func installApp(_ app: CatalogApp, bottleName: String, installerPath: String? = nil) {
         guard !isInstallingApp else { return }
-        guard let wineBinary = discoveredCrossOverWineBinary() else {
-            lastError = "No installed CrossOver.app found — ResPilot needs an existing Wine engine to create a new bottle with."
-            return
-        }
         if installerPath == nil, app.directDownloadURL == nil {
             lastError = "No direct download link for \(app.name); choose a file you've already downloaded instead."
             return
@@ -152,6 +162,11 @@ final class AppModel: ObservableObject {
         lastError = nil
         Task {
             do {
+                if !wineEngineManager.isInstalled {
+                    try await wineEngineManager.install(onProgress: { [weak self] status in
+                        Task { @MainActor in self?.installStatusText = status }
+                    })
+                }
                 let resolvedInstallerPath: String
                 if let installerPath {
                     resolvedInstallerPath = installerPath
@@ -166,8 +181,9 @@ final class AppModel: ObservableObject {
                 }
                 let bottle = try await installer.install(
                     bottleName: bottleName,
-                    bottleDirectory: BottleLocator.defaultCrossOverBottleDirectory(),
-                    wineBinary: wineBinary.path,
+                    bottleDirectory: BottleLocator.defaultRespilotBottleDirectory(),
+                    wineBinary: wineEngineManager.wineBinaryPath,
+                    kind: .respilotManaged,
                     verbs: app.recommendedVerbs,
                     installerPath: resolvedInstallerPath,
                     onStep: { [weak self] step in

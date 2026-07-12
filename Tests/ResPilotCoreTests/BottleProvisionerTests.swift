@@ -77,4 +77,67 @@ import Testing
         }
         #expect(runner.invocations.isEmpty)
     }
+
+    @Test func createsRespilotManagedPrefixViaWinebootInit() throws {
+        let dir = Fixtures.makeTempDirectory("provisioner-respilot")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let prefixPath = dir.appendingPathComponent("Bottles/NewBottle").path
+        let runner = FakeProcessRunner()
+        let provisioner = BottleProvisioner(processRunner: runner)
+        let bottle = Fixtures.bottleTarget(
+            kind: .respilotManaged,
+            prefixPath: prefixPath,
+            wineBinaryPath: "/opt/ResPilot/WineEngine/Wine Staging.app/Contents/Resources/wine/bin/wine",
+            crossOverBottleName: nil
+        )
+
+        try provisioner.createPrefix(bottle)
+
+        #expect(FileManager.default.fileExists(atPath: prefixPath))
+        #expect(runner.invocations.count == 1)
+        let call = try #require(runner.invocations.first)
+        // wineboot is a sibling of wine in the same bin/ directory, same
+        // pattern as cxbottle for CrossOver — no separate bottle-registry
+        // to pre-register a name with for vanilla Wine.
+        #expect(call.executable == "/opt/ResPilot/WineEngine/Wine Staging.app/Contents/Resources/wine/bin/wineboot")
+        #expect(call.arguments == ["--init"])
+        #expect(call.environment?["WINEPREFIX"] == prefixPath)
+        #expect(call.environment?["WINEARCH"] == "win64")
+        #expect(call.timeout == 300)
+    }
+
+    @Test func skipsRespilotManagedCreationWhenThePrefixAlreadyExists() throws {
+        let dir = Fixtures.makeTempDirectory("provisioner-respilot-existing")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let existing = dir.appendingPathComponent("Existing")
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: existing.appendingPathComponent("marker").path, contents: Data("x".utf8))
+
+        let runner = FakeProcessRunner()
+        let provisioner = BottleProvisioner(processRunner: runner)
+        let bottle = Fixtures.bottleTarget(kind: .respilotManaged, prefixPath: existing.path, crossOverBottleName: nil)
+
+        let result = try provisioner.createPrefix(bottle)
+
+        #expect(result.succeeded)
+        #expect(runner.invocations.isEmpty) // never touches wineboot for an existing bottle
+        #expect(FileManager.default.fileExists(atPath: existing.appendingPathComponent("marker").path))
+    }
+
+    @Test func failedRespilotManagedCreationThrows() {
+        let dir = Fixtures.makeTempDirectory("provisioner-respilot-fail")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let runner = FakeProcessRunner()
+        runner.defaultResult = ProcessResult(exitCode: 1, stdout: "", stderr: "wineboot exploded")
+        let provisioner = BottleProvisioner(processRunner: runner)
+        let bottle = Fixtures.bottleTarget(
+            kind: .respilotManaged,
+            prefixPath: dir.appendingPathComponent("Broken").path,
+            crossOverBottleName: nil
+        )
+
+        #expect(throws: BottleProvisionerError.prefixInitFailed("wineboot exploded")) {
+            try provisioner.createPrefix(bottle)
+        }
+    }
 }

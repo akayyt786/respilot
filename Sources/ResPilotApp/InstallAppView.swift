@@ -20,13 +20,13 @@ struct InstallAppView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
-                if !model.canInstallApps {
+                if !model.isWineEngineInstalled && !model.isInstallingApp {
                     Label(
-                        "No CrossOver.app found. ResPilot needs an installed Wine engine to create bottles with.",
-                        systemImage: "exclamationmark.triangle"
+                        "First install downloads ResPilot's own free Wine engine (WineHQ, ~190MB, one-time) — no CrossOver required.",
+                        systemImage: "arrow.down.circle"
                     )
                     .font(.callout)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
                 }
                 if model.isInstallingApp {
                     HStack(spacing: 8) {
@@ -45,7 +45,6 @@ struct InstallAppView: View {
                         AppCatalogCard(
                             app: app,
                             isBusy: model.isInstallingApp,
-                            canInstall: model.canInstallApps,
                             onInstall: { bottleName, installerPath in
                                 model.installApp(app, bottleName: bottleName, installerPath: installerPath)
                             }
@@ -72,17 +71,15 @@ struct InstallAppView: View {
 private struct AppCatalogCard: View {
     let app: CatalogApp
     let isBusy: Bool
-    let canInstall: Bool
     /// `installerPath == nil` means "download it yourself" (auto flow);
     /// non-nil means the user picked an already-downloaded file.
     let onInstall: (_ bottleName: String, _ installerPath: String?) -> Void
 
     @State private var bottleName: String
 
-    init(app: CatalogApp, isBusy: Bool, canInstall: Bool, onInstall: @escaping (String, String?) -> Void) {
+    init(app: CatalogApp, isBusy: Bool, onInstall: @escaping (String, String?) -> Void) {
         self.app = app
         self.isBusy = isBusy
-        self.canInstall = canInstall
         self.onInstall = onInstall
         _bottleName = State(initialValue: app.name.replacingOccurrences(of: " ", with: ""))
     }
@@ -130,13 +127,13 @@ private struct AppCatalogCard: View {
                     Label("Install", systemImage: "square.and.arrow.down")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isBusy || !canInstall || bottleName.isEmpty || app.directDownloadURL == nil)
+                .disabled(isBusy || bottleName.isEmpty || app.directDownloadURL == nil)
 
                 Spacer()
 
                 Menu {
                     Button("Use a file I already downloaded…") { pickInstallerAndInstall() }
-                        .disabled(isBusy || !canInstall || bottleName.isEmpty)
+                        .disabled(isBusy || bottleName.isEmpty)
                     Button("Open download page") { NSWorkspace.shared.open(app.downloadPageURL) }
                 } label: {
                     Image(systemName: "ellipsis.circle")

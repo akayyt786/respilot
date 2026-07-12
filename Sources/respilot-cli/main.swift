@@ -32,6 +32,8 @@ do {
         cmdListApps()
     case "install-app":
         try await cmdInstallApp(args)
+    case "install-engine":
+        try await cmdInstallEngine()
     case "help", "--help", "-h":
         printHelp()
     default:

@@ -11,6 +11,27 @@ public enum BottleKind: String, Codable, Sendable, Hashable, CaseIterable {
     /// Wineskin/Kegworks/Sikarugir-lineage: each wrapped `.app` carries its
     /// own private `wine` binary and prefix, addressed via `WINEPREFIX`.
     case wineskinStyle
+    /// ResPilot's own free, self-managed engine (`WineEngineManager`,
+    /// vanilla WineHQ builds — see `Sources/ResPilotCore/WineEngineManager.swift`
+    /// for the exact release/license). No external app required — the
+    /// engine is downloaded once and the prefix is a plain directory
+    /// ResPilot owns, addressed via `WINEPREFIX` exactly like
+    /// `.wineskinStyle`, just without an `.app` wrapper around it.
+    case respilotManaged
+}
+
+/// Human-readable, exhaustive-by-construction label — every UI call site
+/// switches through this instead of hand-rolling its own ternary/ifs over
+/// `BottleKind` (a real bug found in `ProfilesView`'s badge: a new case
+/// silently fell through to the wrong label there before this existed).
+extension BottleKind {
+    public var displayLabel: String {
+        switch self {
+        case .crossOver: return "CrossOver"
+        case .wineskinStyle: return "Sikarugir / Wineskin"
+        case .respilotManaged: return "ResPilot (free engine)"
+        }
+    }
 }
 
 public struct WineBottleTarget: Codable, Equatable, Sendable {
@@ -84,7 +105,7 @@ public final class WineRegistry {
                 throw WineRegistryError.missingCrossOverBottleName
             }
             args.append(contentsOf: ["--bottle", name])
-        case .wineskinStyle:
+        case .wineskinStyle, .respilotManaged:
             env["WINEPREFIX"] = bottle.prefixPath
         }
         args.append(contentsOf: subcommand)

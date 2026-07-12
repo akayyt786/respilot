@@ -13,6 +13,11 @@ struct BottlesView: View {
             VStack(alignment: .leading, spacing: 24) {
                 header
                 section(
+                    title: "ResPilot (free, built-in)",
+                    bottles: model.discoveredRespilotManagedBottles,
+                    emptyText: "No ResPilot-managed bottles yet. Use \"Install App\" or create a profile to make one — no CrossOver needed."
+                )
+                section(
                     title: "CrossOver",
                     bottles: model.discoveredCrossOverBottles,
                     emptyText: "No CrossOver bottles found. Install CrossOver and create a bottle to see it here."

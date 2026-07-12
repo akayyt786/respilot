@@ -117,4 +117,33 @@ import Testing
 
         #expect(BottleLocator().discoverWineskinStyleWrappers(searchRoots: [root]).isEmpty)
     }
+
+    @Test func discoverRespilotManagedBottlesFindsOnlyValidPrefixesAndSortsByName() throws {
+        let root = Fixtures.makeTempDirectory("respilot-discovery")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Fixtures.makeBottle(named: "GameA", under: root)
+        try Fixtures.makeBottle(named: "AGame", under: root)
+        // Not a real prefix — no drive_c/user.reg — must be excluded.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("NotABottle"), withIntermediateDirectories: true)
+
+        let found = BottleLocator().discoverRespilotManagedBottles(bottleDirectory: root, wineBinary: "/opt/ResPilot/wine64")
+
+        #expect(found.map(\.name) == ["AGame", "GameA"])
+        #expect(found.allSatisfy { $0.target.kind == .respilotManaged })
+        #expect(found.allSatisfy { $0.target.wineBinaryPath == "/opt/ResPilot/wine64" })
+        #expect(found.allSatisfy { $0.target.crossOverBottleName == nil })
+    }
+
+    @Test func discoverRespilotManagedBottlesReturnsEmptyForAMissingDirectory() throws {
+        let root = Fixtures.makeTempDirectory("respilot-missing")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let found = BottleLocator().discoverRespilotManagedBottles(
+            bottleDirectory: root.appendingPathComponent("DoesNotExist"),
+            wineBinary: "/opt/ResPilot/wine64"
+        )
+
+        #expect(found.isEmpty)
+    }
 }

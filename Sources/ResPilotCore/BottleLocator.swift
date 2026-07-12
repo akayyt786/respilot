@@ -51,6 +51,21 @@ public final class BottleLocator {
         ]
     }
 
+    /// ResPilot's own bottle directory — where `.respilotManaged` bottles
+    /// created via `BottleProvisioner`/`AppInstaller` live. Uses
+    /// `ResPilotEnvironment.resolvedHomeDirectory()` (respects
+    /// `RESPILOT_HOME`), unlike the CrossOver/Wineskin roots above: those
+    /// point at *other* apps' real, non-redirectable install locations,
+    /// while this one is ResPilot's own state — same convention as
+    /// `ProfileStore`/`Winetricks`/`DisplayRestoreBreadcrumbStore`.
+    public static func defaultRespilotBottleDirectory(
+        homeDirectory: URL = ResPilotEnvironment.resolvedHomeDirectory()
+    ) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library/Application Support/ResPilot", isDirectory: true)
+            .appendingPathComponent("Bottles", isDirectory: true)
+    }
+
     /// Locates `wine` inside an installed CrossOver.app: the documented
     /// `Contents/SharedSupport/CrossOver/bin/wine` path first, then a
     /// bounded search of the bundle as a fallback.
@@ -113,6 +128,30 @@ public final class BottleLocator {
             }
         }
         return results.sorted { $0.name < $1.name }
+    }
+
+    /// Every subdirectory of ResPilot's own bottle directory that looks
+    /// like a real Wine prefix — bottles `BottleProvisioner`/
+    /// `AppInstaller` created against `WineEngineManager`'s self-managed
+    /// engine, no CrossOver or Wineskin involved. `wineBinary` defaults to
+    /// wherever `WineEngineManager` keeps its engine; pass it explicitly
+    /// only in tests or if the engine hasn't been installed yet.
+    public func discoverRespilotManagedBottles(
+        bottleDirectory: URL? = nil,
+        wineBinary: String? = nil
+    ) -> [DiscoveredBottle] {
+        let bottleDir = bottleDirectory ?? Self.defaultRespilotBottleDirectory()
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: bottleDir, includingPropertiesForKeys: [.isDirectoryKey]
+        ) else {
+            return []
+        }
+        let resolvedWineBinary = wineBinary ?? WineEngineManager().wineBinaryPath
+        return entries.compactMap { entry -> DiscoveredBottle? in
+            guard isWinePrefix(entry) else { return nil }
+            let target = WineBottleTarget(kind: .respilotManaged, prefixPath: entry.path, wineBinaryPath: resolvedWineBinary)
+            return DiscoveredBottle(name: entry.lastPathComponent, target: target)
+        }.sorted { $0.name < $1.name }
     }
 
     // MARK: - Helpers

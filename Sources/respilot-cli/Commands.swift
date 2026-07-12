@@ -17,8 +17,17 @@ func cmdListDisplays() throws {
 
 func cmdListBottles() {
     let locator = BottleLocator()
+    let respilot = locator.discoverRespilotManagedBottles()
     let crossOver = locator.discoverCrossOverBottles()
     let wineskin = locator.discoverWineskinStyleWrappers()
+
+    print("ResPilot-managed bottles (\(respilot.count)) — free, built-in engine, no CrossOver needed:")
+    for bottle in respilot {
+        print("  \(bottle.name)  [\(bottle.target.prefixPath)]")
+    }
+    if respilot.isEmpty {
+        print("  (none yet — \"respilot install-app\" or \"respilot install-engine\" creates the engine on demand)")
+    }
 
     print("CrossOver bottles (\(crossOver.count)):")
     for bottle in crossOver {
@@ -87,7 +96,8 @@ func cmdAddProfile(_ args: ArgParser) throws {
     switch kindRaw {
     case "crossover": kind = .crossOver
     case "wineskin": kind = .wineskinStyle
-    default: throw CLIError.invalidValue("kind", "\(kindRaw) (expected \"crossover\" or \"wineskin\")")
+    case "respilot": kind = .respilotManaged
+    default: throw CLIError.invalidValue("kind", "\(kindRaw) (expected \"crossover\", \"wineskin\", or \"respilot\")")
     }
 
     let locator = BottleLocator()
@@ -113,6 +123,18 @@ func cmdAddProfile(_ args: ArgParser) throws {
             bottle = match.target
         } else {
             throw CLIError.missingArgument("prefix (or --wrapper-name for auto-discovery)")
+        }
+    case .respilotManaged:
+        let engine = WineEngineManager()
+        let bottleName = try args.requiredString("bottle-name")
+        if let match = locator.discoverRespilotManagedBottles(wineBinary: engine.wineBinaryPath).first(where: { $0.name == bottleName }) {
+            bottle = match.target
+        } else {
+            // No cxbottle-style registry to pre-check against — this
+            // bottle is created (via `wineboot --init`) the first time the
+            // profile is applied, same as a fresh CrossOver bottle name.
+            let prefixPath = BottleLocator.defaultRespilotBottleDirectory().appendingPathComponent(bottleName).path
+            bottle = WineBottleTarget(kind: .respilotManaged, prefixPath: prefixPath, wineBinaryPath: engine.wineBinaryPath)
         }
     }
 
@@ -259,15 +281,10 @@ func cmdInstallApp(_ args: ArgParser) async throws {
         installerPath = localURL.path
     }
 
-    let locator = BottleLocator()
-    guard
-        let appBundle = BottleLocator.crossOverAppCandidates().first(where: { FileManager.default.fileExists(atPath: $0.path) }),
-        let wineBinary = locator.crossOverWineBinary(appBundle: appBundle)
-    else {
-        throw CLIError.invalidValue(
-            "app",
-            "No installed CrossOver.app found — ResPilot needs an existing Wine engine to create a new bottle with."
-        )
+    let engine = WineEngineManager()
+    if !engine.isInstalled {
+        print("Downloading ResPilot's free Wine engine (WineHQ, ~190MB, one-time)...")
+        try await engine.install(onProgress: { status in print("  \(status)") })
     }
 
     let winetricks = Winetricks()
@@ -280,8 +297,9 @@ func cmdInstallApp(_ args: ArgParser) async throws {
     let installer = AppInstaller(winetricks: winetricks)
     let bottle = try await installer.install(
         bottleName: bottleName,
-        bottleDirectory: BottleLocator.defaultCrossOverBottleDirectory(),
-        wineBinary: wineBinary.path,
+        bottleDirectory: BottleLocator.defaultRespilotBottleDirectory(),
+        wineBinary: engine.wineBinaryPath,
+        kind: .respilotManaged,
         verbs: catalogApp.recommendedVerbs,
         installerPath: installerPath,
         onStep: { step in
@@ -294,20 +312,33 @@ func cmdInstallApp(_ args: ArgParser) async throws {
         }
     )
     print("Installed. Bottle: \(bottle.prefixPath)")
-    print("Run \"respilot add-profile\" with --kind crossover --bottle-name \(bottleName) once you know the installed launcher's path inside the bottle, to finish creating a profile.")
+    print("Run \"respilot add-profile\" with --kind respilot --bottle-name \(bottleName) once you know the installed launcher's path inside the bottle, to finish creating a profile.")
+}
+
+func cmdInstallEngine() async throws {
+    let engine = WineEngineManager()
+    if engine.isInstalled {
+        print("Already installed at \(engine.engineDirectory.path).")
+        return
+    }
+    print("Downloading ResPilot's free Wine engine (WineHQ \(WineEngineManager.defaultDownloadURL.lastPathComponent), ~190MB, one-time, GNU LGPL v2.1+)...")
+    let wineBinary = try await engine.install(onProgress: { status in print("  \(status)") })
+    print("Installed. wine: \(wineBinary)")
 }
 
 func printHelp() {
     print("""
     respilot — display-resolution / HiDPI auto-switcher for Wine gaming on macOS
-    (works alongside CrossOver or Sikarugir/Wineskin-style wrappers; touches neither's binary)
+    (works alongside CrossOver or Sikarugir/Wineskin-style wrappers, and ships its own
+     free Wine engine — GNU LGPL v2.1+, from github.com/Gcenx/macOS_Wine_builds — so
+     neither is required)
 
     Usage:
       respilot list-displays
       respilot list-bottles
       respilot list-profiles
       respilot show-profile   --name <name>
-      respilot add-profile    --name <name> --kind crossover|wineskin
+      respilot add-profile    --name <name> --kind respilot|crossover|wineskin
                                (--bottle-name <name> | --wrapper-name <name> | --prefix <path> --wine-binary <path>)
                                (--launch-app <path> | --launch-exe <path>)
                                --retina-mode on|off [--dpi <logPixels>]
@@ -319,10 +350,13 @@ func printHelp() {
       respilot list-apps
       respilot install-app    --app steam|"epic games launcher"|"rockstar games launcher"
                                [--installer <path to a file you already downloaded>] [--bottle-name <name>] [--dry-run]
-                               (creates a bottle, provisions common Wine dependencies via Winetricks,
-                                then runs the installer — downloaded automatically from the vendor's own
+                               (creates a bottle against ResPilot's own free engine — downloading it
+                                first if needed — provisions common Wine dependencies via Winetricks,
+                                then runs the installer, downloaded automatically from the vendor's own
                                 site unless --installer overrides it; see "respilot list-apps" for what
                                 each one needs and any known issues)
+      respilot install-engine (downloads ResPilot's free Wine engine ahead of time; "install-app"
+                                also does this automatically on first use)
 
     Environment:
       RESPILOT_HOME   overrides where profiles.json / pending-restore.json live

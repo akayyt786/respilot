@@ -19,12 +19,13 @@ public enum InstallStep: Equatable, Sendable {
 /// `ProfileEditorView`'s existing bottle/launch-target picker at the new
 /// bottle to finish creating a profile.
 ///
-/// Only supports provisioning `.crossOver`-kind bottles: creating a new
-/// bottle means having a Wine binary to initialize it with, and CrossOver
-/// is the only lineage ResPilot can discover an installed engine for on
-/// demand (`BottleLocator.crossOverWineBinary`). A Wineskin/Sikarugir
-/// bottle *is* its wrapper `.app`, built by that app's own "New Wrapper"
-/// tooling — ResPilot doesn't attempt to replicate that.
+/// Supports provisioning either `.crossOver` or `.respilotManaged`
+/// bottles: both need only a Wine binary path to initialize with
+/// (`BottleProvisioner` handles the kind-specific creation mechanics —
+/// `cxbottle` vs `wineboot --init`). A Wineskin/Sikarugir bottle *is* its
+/// wrapper `.app`, built by that app's own "New Wrapper" tooling —
+/// ResPilot doesn't attempt to replicate that, so `.wineskinStyle` stays
+/// unsupported here (see `BottleProvisioner.createPrefix`).
 public actor AppInstaller {
     private let provisioner: BottleProvisioner
     private let winetricks: Winetricks
@@ -55,16 +56,17 @@ public actor AppInstaller {
         bottleName: String,
         bottleDirectory: URL,
         wineBinary: String,
+        kind: BottleKind = .crossOver,
         verbs: [String],
         installerPath: String,
         onStep: (@Sendable (InstallStep) -> Void)? = nil
     ) async throws -> WineBottleTarget {
         let prefixPath = bottleDirectory.appendingPathComponent(bottleName, isDirectory: true).path
         let bottle = WineBottleTarget(
-            kind: .crossOver,
+            kind: kind,
             prefixPath: prefixPath,
             wineBinaryPath: wineBinary,
-            crossOverBottleName: bottleName
+            crossOverBottleName: kind == .crossOver ? bottleName : nil
         )
 
         onStep?(.creatingBottle)

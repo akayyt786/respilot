@@ -117,7 +117,7 @@ public final class Winetricks {
             if fileManager.fileExists(atPath: wineServerPath) {
                 env["WINESERVER_BIN"] = wineServerPath
             }
-        case .wineskinStyle:
+        case .wineskinStyle, .respilotManaged:
             env["WINE"] = bottle.wineBinaryPath
             env["WINESERVER"] = binDirectory.appendingPathComponent("wineserver").path
         }

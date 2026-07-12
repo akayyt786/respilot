@@ -191,6 +191,27 @@ import Testing
         #expect(call.environment?["WINE_BIN"] == nil)
     }
 
+    @Test func respilotManagedBottleUsesPlainWineWithoutWrapper() throws {
+        let runner = FakeProcessRunner()
+        let dir = Fixtures.makeTempDirectory("winetricks-run-respilot")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let scriptURL = Fixtures.writeFile(dir.appendingPathComponent("winetricks"), executable: true)
+        let winetricks = Winetricks(processRunner: runner, scriptURL: scriptURL)
+        let bottle = Fixtures.bottleTarget(
+            kind: .respilotManaged,
+            wineBinaryPath: "/opt/ResPilot/WineEngine/Wine Staging.app/Contents/Resources/wine/bin/wine",
+            crossOverBottleName: nil
+        )
+
+        try winetricks.run(verbs: ["corefonts"], in: bottle)
+
+        let call = try #require(runner.invocations.first)
+        #expect(call.environment?["WINE"] == "/opt/ResPilot/WineEngine/Wine Staging.app/Contents/Resources/wine/bin/wine")
+        #expect(call.environment?["WINEPREFIX"] == bottle.prefixPath)
+        #expect(call.environment?["WINESERVER"] == "/opt/ResPilot/WineEngine/Wine Staging.app/Contents/Resources/wine/bin/wineserver")
+        #expect(call.environment?["WINE_BIN"] == nil)
+    }
+
     @Test func verbFailurePropagatesStderr() {
         let runner = FakeProcessRunner()
         runner.defaultResult = ProcessResult(exitCode: 1, stdout: "", stderr: "download of corefonts failed")
